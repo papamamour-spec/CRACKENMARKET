@@ -6,6 +6,12 @@ import { fmtNum } from "../lib/format";
 import { chartColors, useTheme } from "../hooks/useTheme";
 
 type Timeframe = "1m" | "1D" | "1W" | "1M";
+/** Période affichée (années) sur les vues quotidienne, hebdomadaire et mensuelle */
+type RangeYears = 1 | 3 | 5;
+const RANGES: RangeYears[] = [1, 3, 5];
+/** Assez de bougies pour couvrir 5 ans de séances (≈ 1 305 jours ouvrés) */
+const HISTORY_LIMIT = 1400;
+const YEAR_MS = 365.25 * 86_400_000;
 
 const t = (ms: number) => (ms / 1000) as UTCTimestamp;
 const toLine = (pts: SeriesPoint[]) => pts.map((p) => ({ time: t(p.time), value: p.value }));
@@ -28,6 +34,8 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
   const series = useRef<{ candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; lines: Record<string, ISeriesApi<"Line">>; rsi: ISeriesApi<"Line">; macd: ISeriesApi<"Line">; macdSig: ISeriesApi<"Line">; macdHist: ISeriesApi<"Histogram"> } | null>(null);
   const lastCandle = useRef<Candle | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+  const [range, setRange] = useState<RangeYears>(1);
+  const candleTimes = useRef<number[]>([]);
   const [overlays, setOverlays] = useState({ sma20: true, sma50: true, sma200: false, boll: false });
   const [legend, setLegend] = useState<string>("");
   const { theme } = useTheme();
@@ -121,24 +129,45 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
   // chargement de l'historique
   useEffect(() => {
     let cancelled = false;
-    api<HistoryResponse>(`/market/history/${symbol}?timeframe=${timeframe}&limit=600`).then((h) => {
+    api<HistoryResponse>(`/market/history/${symbol}?timeframe=${timeframe}&limit=${HISTORY_LIMIT}`).then((h) => {
       if (cancelled || !series.current) return;
       const s = series.current;
       s.candles.setData(h.candles.map((c) => ({ time: t(c.ts), open: c.open, high: c.high, low: c.low, close: c.close })));
       s.volume.setData(h.candles.map((c) => ({ time: t(c.ts), value: c.volume, color: c.close >= c.open ? "rgba(34,197,94,.4)" : "rgba(239,68,68,.4)" })));
       lastCandle.current = h.candles[h.candles.length - 1] ?? null;
+      candleTimes.current = h.candles.map((c) => c.ts);
       const ind = h.indicators;
       for (const k of Object.keys(s.lines)) s.lines[k].setData(ind ? toLine(ind[k] ?? []) : []);
       s.rsi.setData(ind ? toLine(ind.rsi) : []);
       s.macd.setData(ind ? toLine(ind.macd) : []);
       s.macdSig.setData(ind ? toLine(ind.macdSignal) : []);
       s.macdHist.setData(ind ? ind.macdHist.map((p) => ({ time: t(p.time), value: p.value, color: p.value >= 0 ? "rgba(34,197,94,.6)" : "rgba(239,68,68,.6)" })) : []);
-      charts.current?.main.timeScale().fitContent();
+      applyRange(timeframe, range);
     });
     return () => {
       cancelled = true;
     };
   }, [symbol, timeframe]);
+
+  // période visible : intraday = tout, sinon les N dernières années
+  function applyRange(tf: Timeframe, years: RangeYears): void {
+    const ts = charts.current?.main.timeScale();
+    if (!ts) return;
+    const times = candleTimes.current;
+    if (tf === "1m" || times.length === 0) {
+      ts.fitContent();
+      return;
+    }
+    const since = Date.now() - years * YEAR_MS;
+    let from = times.findIndex((t) => t >= since);
+    if (from < 0) from = 0;
+    ts.setVisibleLogicalRange({ from, to: times.length - 1 });
+  }
+
+  useEffect(() => {
+    applyRange(timeframe, range);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
 
   // visibilité des overlays
   useEffect(() => {
@@ -181,6 +210,15 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
             </button>
           ))}
         </div>
+        {timeframe !== "1m" && (
+          <div className="seg">
+            {RANGES.map((y) => (
+              <button key={y} className={y === range ? "active" : ""} onClick={() => setRange(y)}>
+                {y === 1 ? "1 an" : `${y} ans`}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="seg">
           {(["sma20", "sma50", "sma200", "boll"] as const).map((k) => (
             <button key={k} className={overlays[k] ? "active" : ""} onClick={() => setOverlays({ ...overlays, [k]: !overlays[k] })}>

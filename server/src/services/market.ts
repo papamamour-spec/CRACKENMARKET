@@ -49,6 +49,41 @@ export interface MarketStatus {
 
 const INDEX_BASE_KEY = "index_base";
 
+/**
+ * Garantit que chaque valeur dispose d'au moins `days` séances d'historique quotidien.
+ * - base vide : historique synthétique généré jusqu'à aujourd'hui, ancré au prix de référence ;
+ * - base plus courte (ex. 2 ans avant le passage à 5 ans) : les séances manquantes sont
+ *   générées à rebours avant la plus ancienne bougie, ancrées sur son cours d'ouverture,
+ *   pour prolonger la série sans rupture.
+ * Retourne le nombre de bougies insérées.
+ */
+export function ensureHistoryDepth(db: DB, days: number): number {
+  const stats = db.prepare("SELECT COUNT(*) AS n, MIN(ts) AS oldest FROM candles WHERE symbol = ?");
+  const oldestOpen = db.prepare("SELECT open FROM candles WHERE symbol = ? AND ts = ?");
+  const insert = db.prepare(
+    "INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)",
+  );
+  const tx = db.transaction((): number => {
+    let generated = 0;
+    for (const inst of INSTRUMENTS) {
+      const { n, oldest } = stats.get(inst.symbol) as { n: number; oldest: number | null };
+      const missing = days - n;
+      if (missing <= 0) continue;
+      let candles: Candle[];
+      if (n === 0 || oldest === null) {
+        candles = generateDailyHistory(inst, missing);
+      } else {
+        const anchor = (oldestOpen.get(inst.symbol, oldest) as { open: number }).open;
+        candles = generateDailyHistory(inst, missing, new Date(oldest - 86_400_000), anchor, 1);
+      }
+      for (const c of candles) insert.run(inst.symbol, c.ts, c.open, c.high, c.low, c.close, c.volume);
+      generated += candles.length;
+    }
+    return generated;
+  });
+  return tx();
+}
+
 export class MarketService extends EventEmitter {
   private provider!: MarketDataProvider;
   private candles = new Map<string, Candle[]>(); // historique quotidien par valeur
@@ -94,20 +129,9 @@ export class MarketService extends EventEmitter {
   }
 
   private async loadOrSeedHistory(): Promise<void> {
-    const count = this.db.prepare("SELECT COUNT(*) AS n FROM candles").get() as { n: number };
-    if (count.n === 0) {
-      console.log(`[market] génération de ${config.historyDays} jours d'historique synthétique…`);
-      const insert = this.db.prepare(
-        "INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)",
-      );
-      const tx = this.db.transaction(() => {
-        for (const inst of INSTRUMENTS) {
-          for (const c of generateDailyHistory(inst, config.historyDays)) {
-            insert.run(inst.symbol, c.ts, c.open, c.high, c.low, c.close, c.volume);
-          }
-        }
-      });
-      tx();
+    const generated = ensureHistoryDepth(this.db, config.historyDays);
+    if (generated > 0) {
+      console.log(`[market] ${generated} séances d'historique synthétique générées (profondeur cible : ${config.historyDays} séances par valeur)`);
     }
     const rows = this.db
       .prepare("SELECT symbol, ts, open, high, low, close, volume FROM candles ORDER BY symbol, ts")
