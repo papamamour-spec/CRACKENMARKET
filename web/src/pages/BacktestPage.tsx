@@ -70,7 +70,7 @@ export function BacktestPage() {
           <div className="card"><h2>Courbe de capital</h2><div ref={ref} /></div>
         </>
       )}
-      <p className="disclaimer">Les performances passées ne préjugent pas des performances futures. Le backtest utilise l'historique quotidien disponible sur la plateforme (2 ans) et les frais de courtage moyens de la BRVM.</p>
+      <p className="disclaimer">Les performances passées ne préjugent pas des performances futures. Le backtest utilise tout l'historique quotidien disponible sur la plateforme (jusqu'à 5 ans) et les frais de courtage moyens de la BRVM.</p>
     </div>
   );
 }

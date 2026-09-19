@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { INSTRUMENTS, INSTRUMENT_MAP, SECTORS } from "../data/instruments.js";
 import { backtest } from "../engine/backtest.js";
+import { config } from "../config.js";
 import { indicatorSeries } from "../engine/technical.js";
 import { ROLES, type AuthService, type Role } from "../services/auth.js";
 import type { AdvisorService } from "../services/advisor.js";
@@ -96,7 +97,7 @@ export function buildRouter(s: Services): Router {
     if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
     const strategy = z.enum(["sma_cross", "rsi_reversion", "macd", "buy_hold"]).parse(req.query.strategy ?? "sma_cross");
     const capital = Number(req.query.capital ?? 1_000_000);
-    res.json(backtest(symbol, s.market.history(symbol, 500), strategy, capital));
+    res.json(backtest(symbol, s.market.history(symbol, config.historyDays), strategy, capital));
   });
 
   // ---------- Profil investisseur ----------

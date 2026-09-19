@@ -44,15 +44,24 @@ export function isTradingDay(d: Date): boolean {
 
 /**
  * Historique quotidien synthétique : mouvement brownien géométrique avec régimes
- * (tendances persistantes) et saisonnalité de volume, ancré au prix de référence actuel.
+ * (tendances persistantes) et saisonnalité de volume, ancré sur `endPrice` (par défaut
+ * le prix de référence actuel) à la date `endDate`. `seedSalt` permet d'obtenir une
+ * trajectoire différente pour un même symbole (utile pour prolonger un historique existant).
  */
-export function generateDailyHistory(inst: InstrumentDef, days: number, endDate = new Date()): Candle[] {
-  const rand = mulberry32(hashSymbol(inst.symbol) ^ 0x9e3779b9);
+export function generateDailyHistory(
+  inst: InstrumentDef,
+  days: number,
+  endDate = new Date(),
+  endPrice = inst.refPrice,
+  seedSalt = 0,
+): Candle[] {
+  if (days <= 0) return [];
+  const rand = mulberry32((hashSymbol(inst.symbol) ^ 0x9e3779b9) + seedSalt * 0x85ebca6b);
   const dailyVol = inst.volatility / Math.sqrt(252);
   const n = days;
-  // On génère à rebours depuis le prix de référence pour que le dernier close = refPrice
+  // On génère à rebours depuis le prix d'ancrage pour que le dernier close = endPrice
   const closes: number[] = new Array(n);
-  closes[n - 1] = inst.refPrice;
+  closes[n - 1] = endPrice;
   let regime = 0;
   for (let i = n - 2; i >= 0; i--) {
     if (rand() < 0.03) regime = (rand() - 0.5) * 0.004; // nouveau régime de tendance
