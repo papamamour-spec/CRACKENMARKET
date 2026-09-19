@@ -13,6 +13,9 @@ export const config = {
   simTickIntervalMs: Number(env.SIM_TICK_INTERVAL_MS ?? 2000),
   dbPath: env.DB_PATH ?? path.resolve(process.cwd(), "data/crackenmarket.db"),
   corsOrigin: env.CORS_ORIGIN ?? "*",
+  /** Compte administrateur créé (ou promu) au démarrage si les deux variables sont définies */
+  adminEmail: env.ADMIN_EMAIL,
+  adminPassword: env.ADMIN_PASSWORD,
   /** Nombre de jours d'historique synthétique générés au premier démarrage */
   historyDays: Number(env.HISTORY_DAYS ?? 730),
   /** Heures de cotation BRVM (UTC = heure d'Abidjan) */
