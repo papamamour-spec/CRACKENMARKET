@@ -1,0 +1,226 @@
+export interface Quote {
+  symbol: string;
+  name: string;
+  sector: string;
+  country: string;
+  price: number;
+  prevClose: number;
+  open: number;
+  high: number;
+  low: number;
+  change: number;
+  changePct: number;
+  volume: number;
+  value: number;
+  ts: number;
+  source: "live" | "simulation";
+  brvm30: boolean;
+}
+export interface IndexSnapshot {
+  name: string;
+  value: number;
+  changePct: number;
+  ts: number;
+}
+export interface MarketStatus {
+  provider: "live" | "simulation";
+  open: boolean;
+  serverTime: number;
+  nextOpen: number;
+  nextClose: number;
+}
+export interface Candle {
+  ts: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+export interface SeriesPoint {
+  time: number;
+  value: number;
+}
+export interface HistoryResponse {
+  symbol: string;
+  timeframe: string;
+  candles: Candle[];
+  indicators: Record<string, SeriesPoint[]> | null;
+}
+export interface User {
+  id: number;
+  email: string;
+  fullName: string;
+  role: string;
+}
+export interface DeclaredProfile {
+  riskTolerance: number;
+  horizonMonths: number;
+  objective: "income" | "growth" | "balanced" | "speculative";
+  experience: "beginner" | "intermediate" | "expert";
+  monthlyCapacity: number;
+  preferredSectors: string[];
+}
+export interface BehaviorBias {
+  code: string;
+  severity: number;
+  title: string;
+  description: string;
+  advice: string;
+}
+export interface BehaviorProfile {
+  effectiveRiskTolerance: number;
+  declared: DeclaredProfile;
+  tradesPerMonth: number;
+  winRate: number;
+  avgHoldingDays: number;
+  totalRealizedPnl: number;
+  biases: BehaviorBias[];
+  disciplineScore: number;
+  style: string;
+}
+export interface Recommendation {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  action: string;
+  score: number;
+  confidence: number;
+  fitScore: number;
+  targetPrice: number;
+  stopLoss: number;
+  suggestedQuantity: number;
+  suggestedAmount: number;
+  expectedReturnPct: number;
+  riskRewardRatio: number;
+  horizon: string;
+  rationale: string[];
+  warnings: string[];
+  dividendYield: number;
+  held: boolean;
+}
+export interface Technical {
+  symbol: string;
+  price: number;
+  sma20: number;
+  sma50: number;
+  sma200: number;
+  rsi14: number;
+  macd: number;
+  macdSignal: number;
+  macdHist: number;
+  bollUpper: number;
+  bollLower: number;
+  atr14: number;
+  stochK: number;
+  volatility60: number;
+  maxDrawdown250: number;
+  sharpe250: number;
+  perf1w: number;
+  perf1m: number;
+  perf3m: number;
+  perf6m: number;
+  perf1y: number;
+  volumeRatio: number;
+  support: number;
+  resistance: number;
+  scores: { trend: number; momentum: number; meanReversion: number; volume: number; risk: number; composite: number };
+  signals: string[];
+}
+export interface Position {
+  symbol: string;
+  name: string;
+  sector: string;
+  quantity: number;
+  avgPrice: number;
+  currentPrice: number;
+  marketValue: number;
+  costBasis: number;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
+  weightPct: number;
+  dayChangePct: number;
+}
+export interface PortfolioSummary {
+  portfolio: { id: number; name: string; cash: number; initialCash: number };
+  positions: Position[];
+  invested: number;
+  totalValue: number;
+  totalPnl: number;
+  totalPnlPct: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+}
+export interface Order {
+  id: number;
+  symbol: string;
+  side: "buy" | "sell";
+  type: "market" | "limit";
+  quantity: number;
+  limit_price: number | null;
+  status: string;
+  filled_price: number | null;
+  created_at: number;
+  note: string | null;
+}
+export interface Diagnostic {
+  totalValue: number;
+  cash: number;
+  invested: number;
+  cashRatio: number;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
+  lines: number;
+  sectorExposure: { sector: string; weightPct: number }[];
+  diversificationScore: number;
+  riskScore: number;
+  healthScore: number;
+  suggestions: string[];
+  rebalancing: { symbol: string; action: string; reason: string; weightPct: number }[];
+}
+export interface Allocation {
+  symbol: string;
+  name: string;
+  weightPct: number;
+  amount: number;
+  quantity: number;
+}
+export interface ScreenerRow {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  changePct: number;
+  composite: number;
+  trend: number;
+  momentum: number;
+  rsi: number;
+  volatility: number;
+  perf1m: number;
+  perf1y: number;
+  dividendYield: number;
+  signals: string[];
+}
+export interface Alert {
+  id: number;
+  symbol: string;
+  condition: "above" | "below" | "pct_move";
+  value: number;
+  active: number;
+  triggered_at: number | null;
+  created_at: number;
+}
+export interface BacktestResult {
+  strategy: string;
+  symbol: string;
+  initialCapital: number;
+  finalEquity: number;
+  totalReturnPct: number;
+  buyHoldReturnPct: number;
+  trades: number;
+  winRate: number;
+  maxDrawdownPct: number;
+  equityCurve: SeriesPoint[];
+  signals: { time: number; side: "buy" | "sell"; price: number }[];
+}
