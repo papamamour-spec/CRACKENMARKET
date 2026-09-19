@@ -1,0 +1,17 @@
+services:
+  crackenmarket:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      JWT_SECRET: changez-moi-en-production
+      DATA_PROVIDER: auto
+      LIVE_POLL_INTERVAL_MS: "15000"
+      SIM_TICK_INTERVAL_MS: "2000"
+      CORS_ORIGIN: "*"
+    volumes:
+      - crackenmarket-data:/data
+    restart: unless-stopped
+
+volumes:
+  crackenmarket-data:
