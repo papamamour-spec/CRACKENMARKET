@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   const market = new MarketService(db);
   await market.start();
   const auth = new AuthService(db);
+  auth.ensureAdmin(config.adminEmail, config.adminPassword);
   const portfolios = new PortfolioService(db, market);
   const advisor = new AdvisorService(db, market, portfolios);
   const alerts = new AlertService(db);
