@@ -20,8 +20,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/web/dist ./web/dist
+# Pas d'instruction VOLUME : Railway la rejette à la validation. Le stockage persistant
+# se déclare dans le tableau de bord (Railway Volume monté sur /data) ou via docker-compose.
 RUN mkdir -p /data
-VOLUME ["/data"]
 EXPOSE 4000
 WORKDIR /app/server
 CMD ["node", "dist/index.js"]

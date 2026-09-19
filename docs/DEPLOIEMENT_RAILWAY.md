@@ -6,10 +6,25 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
 ## Étapes
 
 1. **Créer le projet** : Railway → *New Project* → *Deploy from GitHub repo* → choisir
-   `CRACKENMARKET` (branche `main` une fois la PR fusionnée).
-2. **Ajouter un volume** (Service → *Volumes* → *Add Volume*) monté sur `/data`.
+   `CRACKENMARKET` (branche `main`).
+2. **Vérifier les réglages du service** (Service → *Settings*). Railway détecte parfois le
+   monorepo comme un service « @crackenmarket/web » et y ajoute des commandes personnalisées
+   qui font échouer le déploiement. Les valeurs attendues sont :
+
+   | Réglage | Valeur attendue |
+   | --- | --- |
+   | *Builder* | Dockerfile |
+   | *Dockerfile Path* | `/Dockerfile` |
+   | *Root Directory* | vide (racine du dépôt) |
+   | *Build Command* | **vide** (supprimer `npm run build --workspace=@crackenmarket/web`) |
+   | *Start Command* | **vide** ou `node dist/index.js` (supprimer `npm run dev --workspace=@crackenmarket/web`) |
+   | *Watch Paths* | **vide** (supprimer `/web/**`, sinon les changements du serveur ne redéploient pas) |
+
+   Le fichier `railway.json` du dépôt fixe déjà le builder, le chemin du Dockerfile, la commande
+   de démarrage et le healthcheck ; les réglages du tableau de bord ne doivent pas les contredire.
+3. **Ajouter un volume** (Service → *Volumes* → *Add Volume*) monté sur `/data`.
    La base SQLite (`/data/crackenmarket.db`) survit ainsi aux redéploiements.
-3. **Variables d'environnement** (Service → *Variables*) :
+4. **Variables d'environnement** (Service → *Variables*) :
 
    | Variable | Valeur recommandée | Rôle |
    | --- | --- | --- |
@@ -21,12 +36,16 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `CORS_ORIGIN` | `*` | front et API servis par le même domaine |
 
    `PORT` est injecté automatiquement par Railway et lu par le serveur.
-4. **Générer un domaine** : Service → *Settings* → *Networking* → *Generate Domain*.
+5. **Générer un domaine** (le service est « non exposé » tant que ce n'est pas fait) : Service → *Settings* → *Networking* → *Generate Domain*.
    Le WebSocket fonctionne sur le même domaine (`wss://…/ws`), sans configuration supplémentaire.
-5. **Vérifier** : `https://<votre-domaine>/api/health` doit répondre `{"ok":true,…}` et indiquer
+6. **Vérifier** : `https://<votre-domaine>/api/health` doit répondre `{"ok":true,…}` et indiquer
    le fournisseur de données actif (`live` ou `simulation`).
 
 ## Remarques
+
+- Le `Dockerfile` ne contient volontairement pas d'instruction `VOLUME` : le validateur de
+  Railway la refuse (« docker VOLUME … is not supported, use Railway Volumes ») et le build
+  échoue avant même de commencer. Le montage se fait exclusivement via un Railway Volume.
 
 - Le plan gratuit de Railway met le service en veille après inactivité ; le flux temps réel
   redémarre à la première connexion et l'historique est rechargé depuis le volume.
