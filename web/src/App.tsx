@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { MarketProvider } from "./hooks/useMarket";
+import { ThemeProvider } from "./hooks/useTheme";
 import { AdvisorPage } from "./pages/AdvisorPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { BacktestPage } from "./pages/BacktestPage";
@@ -25,6 +26,7 @@ function Protected() {
 
 export function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -43,5 +45,6 @@ export function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ThemeProvider>
   );
 }

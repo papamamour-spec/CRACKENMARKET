@@ -22,6 +22,7 @@ chaque cotation.
 | Suivi & alertes | Liste de suivi, alertes de cours (seuil haut / bas / variation %), notifications temps réel |
 | Backtest | Croisement de moyennes mobiles, retour à la moyenne RSI, MACD, acheter-conserver ; courbe de capital et signaux |
 | Acteurs | Rôles investisseur, SGI, institutionnel, analyste |
+| Interface | Mode sombre et mode clair (bouton dans la barre supérieure, préférence mémorisée, réglage système respecté par défaut), graphiques adaptés au thème |
 
 ## Architecture
 
@@ -64,6 +65,8 @@ Production :
 npm run build
 npm start            # sert l'API, le WebSocket et l'interface compilée sur le port 4000
 ```
+
+Railway : voir `docs/DEPLOIEMENT_RAILWAY.md` (Dockerfile détecté automatiquement, volume à monter sur `/data`).
 
 Docker :
 

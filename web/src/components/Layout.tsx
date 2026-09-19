@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useMarket } from "../hooks/useMarket";
 import { fmtNum, fmtPct, signClass } from "../lib/format";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -35,6 +36,7 @@ export function Layout() {
           {connected ? (status?.provider === "live" ? "Temps réel BRVM" : "Simulation temps réel") : "Reconnexion…"}
           {status && <span>· {status.open ? "Séance ouverte" : "Hors séance"}</span>}
         </span>
+        <ThemeToggle />
         <span className="muted" style={{ fontSize: 12 }}>
           {user?.fullName} <button className="btn sm" onClick={logout} style={{ marginLeft: 6 }}>Déconnexion</button>
         </span>

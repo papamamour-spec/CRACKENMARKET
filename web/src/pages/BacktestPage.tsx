@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, ColorType, type UTCTimestamp } from "lightweight-charts";
 import { useMarket } from "../hooks/useMarket";
+import { chartColors, useTheme } from "../hooks/useTheme";
 import { api } from "../lib/api";
 import { fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
 import type { BacktestResult } from "../lib/types";
@@ -19,6 +20,7 @@ export function BacktestPage() {
   const [capital, setCapital] = useState(1_000_000);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
 
   const run = () => api<BacktestResult>(`/backtest/${symbol}?strategy=${strategy}&capital=${capital}`).then(setResult);
   useEffect(() => {
@@ -28,17 +30,18 @@ export function BacktestPage() {
 
   useEffect(() => {
     if (!ref.current || !result) return;
+    const c = chartColors(theme);
     const chart = createChart(ref.current, {
       height: 320,
-      layout: { background: { type: ColorType.Solid, color: "#101a2e" }, textColor: "#8b9bb8" },
-      grid: { vertLines: { color: "#1a2740" }, horzLines: { color: "#1a2740" } },
+      layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.text },
+      grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
       localization: { locale: "fr-FR", priceFormatter: (p: number) => fmtNum(p) },
-      timeScale: { borderColor: "#223050" },
-      rightPriceScale: { borderColor: "#223050" },
+      timeScale: { borderColor: c.border },
+      rightPriceScale: { borderColor: c.border },
     });
-    const s = chart.addAreaSeries({ lineColor: "#38bdf8", topColor: "rgba(56,189,248,.3)", bottomColor: "rgba(56,189,248,0)" });
+    const s = chart.addAreaSeries({ lineColor: c.accent, topColor: c.accent + "4d", bottomColor: c.accent + "00" });
     s.setData(result.equityCurve.map((p) => ({ time: (p.time / 1000) as UTCTimestamp, value: p.value })));
-    s.setMarkers(result.signals.map((m) => ({ time: (m.time / 1000) as UTCTimestamp, position: m.side === "buy" ? "belowBar" : "aboveBar", color: m.side === "buy" ? "#22c55e" : "#ef4444", shape: m.side === "buy" ? "arrowUp" : "arrowDown", text: m.side === "buy" ? "Achat" : "Vente" })));
+    s.setMarkers(result.signals.map((m) => ({ time: (m.time / 1000) as UTCTimestamp, position: m.side === "buy" ? "belowBar" : "aboveBar", color: m.side === "buy" ? c.up : c.down, shape: m.side === "buy" ? "arrowUp" : "arrowDown", text: m.side === "buy" ? "Achat" : "Vente" })));
     chart.timeScale().fitContent();
     const ro = new ResizeObserver(() => chart.applyOptions({ width: ref.current?.clientWidth ?? 600 }));
     ro.observe(ref.current);
@@ -46,7 +49,7 @@ export function BacktestPage() {
       ro.disconnect();
       chart.remove();
     };
-  }, [result]);
+  }, [result, theme]);
 
   return (
     <div className="grid">

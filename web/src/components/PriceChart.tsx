@@ -3,6 +3,7 @@ import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp, ColorT
 import { api } from "../lib/api";
 import type { Candle, HistoryResponse, Quote, SeriesPoint } from "../lib/types";
 import { fmtNum } from "../lib/format";
+import { chartColors, useTheme } from "../hooks/useTheme";
 
 type Timeframe = "1m" | "1D" | "1W" | "1M";
 
@@ -29,32 +30,34 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1D");
   const [overlays, setOverlays] = useState({ sma20: true, sma50: true, sma200: false, boll: false });
   const [legend, setLegend] = useState<string>("");
+  const { theme } = useTheme();
 
   // création des graphiques
   useEffect(() => {
     if (!mainRef.current || !rsiRef.current || !macdRef.current) return;
+    const c = chartColors(theme);
     const common = {
-      layout: { background: { type: ColorType.Solid, color: "#101a2e" }, textColor: "#8b9bb8" },
-      grid: { vertLines: { color: "#1a2740" }, horzLines: { color: "#1a2740" } },
+      layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.text },
+      grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#223050" },
-      timeScale: { borderColor: "#223050", timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: c.border },
+      timeScale: { borderColor: c.border, timeVisible: true, secondsVisible: false },
       localization: { locale: "fr-FR", priceFormatter: (p: number) => fmtNum(p) },
     };
     const main = createChart(mainRef.current, { ...common, height });
     const rsi = createChart(rsiRef.current, { ...common, height: 120 });
     const macd = createChart(macdRef.current, { ...common, height: 120 });
-    const candles = main.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderVisible: false, wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
+    const candles = main.addCandlestickSeries({ upColor: c.up, downColor: c.down, borderVisible: false, wickUpColor: c.up, wickDownColor: c.down });
     const volume = main.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     main.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     const mk = (color: string, width: 1 | 2 = 1) => main.addLineSeries({ color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-    const lines = { sma20: mk("#38bdf8"), sma50: mk("#f59e0b"), sma200: mk("#a78bfa", 2), bollUpper: mk("#64748b"), bollLower: mk("#64748b") };
-    const rsiS = rsi.addLineSeries({ color: "#38bdf8", lineWidth: 1, priceLineVisible: false });
-    rsiS.createPriceLine({ price: 70, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
-    rsiS.createPriceLine({ price: 30, color: "#22c55e", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+    const lines = { sma20: mk(c.accent), sma50: mk(c.warn), sma200: mk(c.purple, 2), bollUpper: mk(c.neutral), bollLower: mk(c.neutral) };
+    const rsiS = rsi.addLineSeries({ color: c.accent, lineWidth: 1, priceLineVisible: false });
+    rsiS.createPriceLine({ price: 70, color: c.down, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+    rsiS.createPriceLine({ price: 30, color: c.up, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
     const macdHist = macd.addHistogramSeries({ priceLineVisible: false });
-    const macdS = macd.addLineSeries({ color: "#38bdf8", lineWidth: 1, priceLineVisible: false });
-    const macdSig = macd.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false });
+    const macdS = macd.addLineSeries({ color: c.accent, lineWidth: 1, priceLineVisible: false });
+    const macdSig = macd.addLineSeries({ color: c.warn, lineWidth: 1, priceLineVisible: false });
     charts.current = { main, rsi, macd };
     series.current = { candles, volume, lines, rsi: rsiS, macd: macdS, macdSig, macdHist };
 
@@ -86,7 +89,34 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
       charts.current = null;
       series.current = null;
     };
+    // Le thème initial est lu ici ; les changements ultérieurs sont appliqués par l'effet dédié ci-dessous.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height]);
+
+  // application du thème sans recréer les graphiques
+  useEffect(() => {
+    const ch = charts.current;
+    const s = series.current;
+    if (!ch || !s) return;
+    const c = chartColors(theme);
+    for (const chart of [ch.main, ch.rsi, ch.macd]) {
+      chart.applyOptions({
+        layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.text },
+        grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+        rightPriceScale: { borderColor: c.border },
+        timeScale: { borderColor: c.border },
+      });
+    }
+    s.candles.applyOptions({ upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down });
+    s.lines.sma20.applyOptions({ color: c.accent });
+    s.lines.sma50.applyOptions({ color: c.warn });
+    s.lines.sma200.applyOptions({ color: c.purple });
+    s.lines.bollUpper.applyOptions({ color: c.neutral });
+    s.lines.bollLower.applyOptions({ color: c.neutral });
+    s.rsi.applyOptions({ color: c.accent });
+    s.macd.applyOptions({ color: c.accent });
+    s.macdSig.applyOptions({ color: c.warn });
+  }, [theme]);
 
   // chargement de l'historique
   useEffect(() => {

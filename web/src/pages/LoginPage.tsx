@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 const ROLES = [
   { value: "investor", label: "Investisseur particulier" },
@@ -37,6 +38,7 @@ export function LoginPage() {
 
   return (
     <div className="auth">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}><ThemeToggle /></div>
       <div className="brand">Cracken<span>Market</span></div>
       <div className="card">
         <div className="tabs">
