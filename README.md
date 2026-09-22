@@ -27,6 +27,7 @@ chaque cotation.
 | Social | Classement des investisseurs (mois / total), profils publics anonymisés, suivi et flux des opérations des investisseurs suivis |
 | Performance | Instantanés quotidiens, courbe portefeuille vs BRVM Composite, Sharpe, drawdown, taux de réussite, facteur de profit, export CSV |
 | Compte | Double authentification TOTP, parrainage avec points, clés API (`X-API-Key`) pour SGI / institutionnels, profil public ou privé |
+| Ordres réels via SGI | Ouverture de compte-titres chez une SGI partenaire (Matha Capital), transmission des ordres réels (marché / limite, validité jour / semaine / GTC), suivi d'exécution en temps réel, console de traitement pour le personnel de la SGI, connecteur webhook signé vers le back-office du partenaire |
 | Acteurs | Rôles investisseur, SGI, institutionnel, analyste ; page d'accueil publique avec cote en direct ; application installable (PWA) |
 | Interface | Mode sombre et mode clair (bouton dans la barre supérieure, préférence mémorisée, réglage système respecté par défaut), graphiques adaptés au thème |
 
@@ -112,6 +113,8 @@ npm run typecheck
 | GET/POST/DELETE | `/api/social/leaderboard`, `/api/social/profile/:id`, `/api/social/follow/:id`, `/api/social/activity` | Classement, profils, suivi |
 | POST | `/api/auth/2fa/setup`, `/api/auth/2fa/enable`, `/api/auth/2fa/verify` | Double authentification |
 | GET/POST/DELETE | `/api/account/apikeys`, GET `/api/account/referrals`, PUT `/api/account/public` | Clés API, parrainage, visibilité |
+| GET/POST/DELETE | `/api/sgi/partners`, `/api/sgi/accounts`, `/api/sgi/orders`, `/api/sgi/orders/:id/events` | SGI partenaires, compte-titres, ordres réels |
+| GET/POST | `/api/sgi/console`, `/api/sgi/console/orders/:id`, `/api/sgi/console/accounts/:id`, `/api/sgi/staff`, `/api/sgi/webhook/:code` | Console SGI, rattachement du personnel (admin), webhook du back-office |
 | WS | `/ws?token=…` | `hello`, `quotes`, `books` (valeurs abonnées via `{"type":"subscribe","symbols":[…]}`), `indices`, `status`, `alert`, `order_filled`, `signal` |
 
 ## Avertissement

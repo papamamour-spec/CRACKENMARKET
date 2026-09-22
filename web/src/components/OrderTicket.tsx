@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { post } from "../lib/api";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api, post } from "../lib/api";
 import { fmtFcfa, fmtNum } from "../lib/format";
-import type { Order, OrderType, PortfolioSummary, Quote } from "../lib/types";
+import { SGI_STATUS_LABEL, type Order, type OrderType, type PortfolioSummary, type Quote, type SgiAccount, type SgiOrder, type SgiPartner } from "../lib/types";
 
 interface Props {
   quote: Quote;
@@ -31,10 +32,26 @@ export function OrderTicket({ quote, defaultQuantity, suggestedTarget, suggested
   const [stopLoss, setStopLoss] = useState(suggestedStop ?? Math.round(quote.price * 0.93));
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // mode réel : compte-titres validé chez une SGI partenaire
+  const [mode, setMode] = useState<"virtual" | "real">("virtual");
+  const [sgiAccount, setSgiAccount] = useState<SgiAccount | null>(null);
+  const [sgiPartner, setSgiPartner] = useState<SgiPartner | null>(null);
+  const [sgiValidity, setSgiValidity] = useState<"day" | "week" | "gtc">("day");
+  useEffect(() => {
+    Promise.all([api<SgiAccount[]>("/sgi/accounts"), api<SgiPartner[]>("/sgi/partners")])
+      .then(([accounts, partners]) => {
+        const verified = accounts.find((a) => a.status === "verified");
+        setSgiAccount(verified ?? null);
+        setSgiPartner(partners.find((p) => p.code === verified?.sgi_code) ?? partners[0] ?? null);
+      })
+      .catch(() => {});
+  }, []);
+  const real = mode === "real";
+  const effectiveType: OrderType = real && (type === "stop" || type === "stop_limit") ? "market" : type;
 
-  const px = type === "market" || type === "stop" ? quote.price : limitPrice;
+  const px = effectiveType === "market" ? quote.price : limitPrice;
   const gross = px * quantity;
-  const fee = gross * 0.0125;
+  const fee = real && sgiPartner ? Math.max(sgiPartner.minFee, gross * (sgiPartner.brokerageFeePct / 100)) + gross * (sgiPartner.marketFeePct / 100) : gross * 0.0125;
   const riskPerShare = bracket ? Math.max(0, px - stopLoss) : 0;
   const rewardPerShare = bracket ? Math.max(0, takeProfit - px) : 0;
 
@@ -42,6 +59,11 @@ export function OrderTicket({ quote, defaultQuantity, suggestedTarget, suggested
     setBusy(true);
     setMsg(null);
     try {
+      if (real && sgiAccount) {
+        const o = await post<SgiOrder>("/sgi/orders", { sgiCode: sgiAccount.sgi_code, symbol: quote.symbol, side, type: effectiveType, quantity, limitPrice: effectiveType === "limit" ? limitPrice : undefined, validity: sgiValidity });
+        setMsg({ ok: o.status !== "rejected", text: `Ordre réel n° ${o.id} : ${SGI_STATUS_LABEL[o.status]}${o.note ? ` · ${o.note}` : ""}` });
+        return;
+      }
       const body = {
         symbol: quote.symbol,
         side,
@@ -79,20 +101,27 @@ export function OrderTicket({ quote, defaultQuantity, suggestedTarget, suggested
           <button className={side === "sell" ? "active down" : ""} onClick={() => setSide("sell")}>Vente</button>
         </div>
       </div>
+      <div className="seg" style={{ marginBottom: 10, display: "flex" }}>
+        <button style={{ flex: 1 }} className={!real ? "active" : ""} onClick={() => setMode("virtual")}>Portefeuille virtuel</button>
+        <button style={{ flex: 1 }} className={real ? "active" : ""} onClick={() => setMode("real")} disabled={!sgiAccount} title={sgiAccount ? "" : "Ouvrez et faites valider un compte-titres chez une SGI partenaire"}>
+          Réel via {sgiPartner?.shortName ?? "SGI"}
+        </button>
+      </div>
+      {!sgiAccount && <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>Pour passer des ordres réels, <Link to="/sgi">ouvrez un compte-titres chez {sgiPartner?.shortName ?? "une SGI partenaire"}</Link>.</p>}
       <div className="field">
         <label>Type d'ordre</label>
-        <select value={type} onChange={(e) => setType(e.target.value as OrderType)}>
-          {(Object.keys(TYPE_LABEL) as OrderType[]).map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+        <select value={effectiveType} onChange={(e) => setType(e.target.value as OrderType)}>
+          {(Object.keys(TYPE_LABEL) as OrderType[]).filter((t) => !real || t === "market" || t === "limit").map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
         </select>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {(type === "stop" || type === "stop_limit") && (
+        {!real && (type === "stop" || type === "stop_limit") && (
           <div className="field">
             <label>Déclenchement (FCFA)</label>
             <input type="number" value={stopPrice} onChange={(e) => setStopPrice(Number(e.target.value))} />
           </div>
         )}
-        {(type === "limit" || type === "stop_limit") && (
+        {(effectiveType === "limit" || effectiveType === "stop_limit") && (
           <div className="field">
             <label>Prix limite (FCFA)</label>
             <input type="number" value={limitPrice} onChange={(e) => setLimitPrice(Number(e.target.value))} />
@@ -104,13 +133,21 @@ export function OrderTicket({ quote, defaultQuantity, suggestedTarget, suggested
         </div>
         <div className="field">
           <label>Validité</label>
-          <select value={validity} onChange={(e) => setValidity(e.target.value as "day" | "gtc")}>
-            <option value="gtc">Jusqu'à annulation</option>
-            <option value="day">Jour</option>
-          </select>
+          {real ? (
+            <select value={sgiValidity} onChange={(e) => setSgiValidity(e.target.value as "day" | "week" | "gtc")}>
+              <option value="day">Jour</option>
+              <option value="week">Semaine</option>
+              <option value="gtc">Jusqu'à annulation</option>
+            </select>
+          ) : (
+            <select value={validity} onChange={(e) => setValidity(e.target.value as "day" | "gtc")}>
+              <option value="gtc">Jusqu'à annulation</option>
+              <option value="day">Jour</option>
+            </select>
+          )}
         </div>
       </div>
-      {side === "buy" && (
+      {!real && side === "buy" && (
         <div className="field">
           <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
             <input type="checkbox" checked={bracket} onChange={(e) => setBracket(e.target.checked)} style={{ width: "auto" }} />
@@ -129,14 +166,18 @@ export function OrderTicket({ quote, defaultQuantity, suggestedTarget, suggested
       )}
       <ul className="clean" style={{ marginBottom: 10 }}>
         <li className="row"><span>Montant estimé</span><span className="spacer" /><span className="mono">{fmtFcfa(gross)}</span></li>
-        <li className="row"><span>Frais estimés (1,25 %)</span><span className="spacer" /><span className="mono">{fmtFcfa(fee)}</span></li>
+        <li className="row"><span>Frais estimés {real ? `(courtage ${sgiPartner?.brokerageFeePct} % + BRVM/DC-BR ${sgiPartner?.marketFeePct} %)` : "(1,25 %)"}</span><span className="spacer" /><span className="mono">{fmtFcfa(fee)}</span></li>
         <li className="row"><b>{side === "buy" ? "Total à payer" : "Net encaissé"}</b><span className="spacer" /><b className="mono">{fmtFcfa(side === "buy" ? gross + fee : gross - fee)}</b></li>
       </ul>
       <button className={`btn ${side}`} style={{ width: "100%" }} disabled={busy} onClick={submit}>
-        {side === "buy" ? "Acheter" : "Vendre"} {quantity} {quote.symbol}
+        {real ? "Transmettre à " + (sgiPartner?.shortName ?? "la SGI") + " : " : ""}{side === "buy" ? "Acheter" : "Vendre"} {quantity} {quote.symbol}
       </button>
       {msg && <div className={msg.ok ? "success" : "error"}>{msg.text}</div>}
-      <p className="disclaimer">Portefeuille virtuel : les ordres sont simulés au cours affiché. Pour un ordre réel, transmettez-le à votre SGI.</p>
+      {real ? (
+        <p className="disclaimer">Ordre réel : transmis à {sgiPartner?.shortName}, seule habilitée à négocier sur la BRVM, pour exécution sur votre compte-titres n° {sgiAccount?.account_number}. Le prix d'un ordre au marché est celui obtenu par la SGI en séance. Suivi dans <Link to="/sgi">Compte-titres & ordres réels</Link>.</p>
+      ) : (
+        <p className="disclaimer">Portefeuille virtuel : les ordres sont simulés au cours affiché. Pour un ordre réel, basculez en mode « Réel via SGI ».</p>
+      )}
     </div>
   );
 }

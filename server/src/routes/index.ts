@@ -8,6 +8,7 @@ import { POINTS, ROLES, type AuthService, type Role } from "../services/auth.js"
 import type { SocialService } from "../services/social.js";
 import type { SignalService } from "../services/signals.js";
 import { buildEventCalendar } from "../data/events.js";
+import type { SgiService, SgiOrderStatus } from "../services/sgi.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -24,6 +25,7 @@ export interface Services {
   alerts: AlertService;
   social: SocialService;
   signals: SignalService;
+  sgi: SgiService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -289,6 +291,121 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       s.portfolios.cancelOrder(req.auth!.sub, Number(req.params.id));
       res.json({ ok: true });
+    }),
+  );
+
+  // ---------- SGI partenaires : compte-titres et ordres réels ----------
+  r.get("/sgi/partners", (_req, res) => res.json(s.sgi.partners()));
+  r.get("/sgi/accounts", guard, (req, res) => res.json(s.sgi.accounts(req.auth!.sub)));
+  const accountSchema = z.object({
+    sgiCode: z.string(),
+    holderName: z.string().min(3).max(120),
+    idType: z.enum(["cni", "passeport", "carte_consulaire", "rccm"]),
+    idNumber: z.string().min(3).max(40),
+    phone: z.string().min(6).max(30),
+    address: z.string().min(5).max(200),
+    country: z.string().length(2),
+    accountNumber: z.string().max(40).optional(),
+  });
+  r.post(
+    "/sgi/accounts",
+    guard,
+    asyncHandler((req, res) => res.status(201).json(s.sgi.requestAccount(req.auth!.sub, accountSchema.parse(req.body)))),
+  );
+  const sgiOrderSchema = z.object({
+    sgiCode: z.string(),
+    symbol: z.string().min(2).max(6),
+    side: z.enum(["buy", "sell"]),
+    type: z.enum(["market", "limit"]),
+    quantity: z.number().int().positive(),
+    limitPrice: z.number().positive().optional(),
+    validity: z.enum(["day", "week", "gtc"]).optional(),
+  });
+  r.get("/sgi/orders", guard, (req, res) => res.json(s.sgi.orders(req.auth!.sub)));
+  r.post(
+    "/sgi/orders",
+    guard,
+    asyncHandler(async (req, res) => {
+      const body = sgiOrderSchema.parse(req.body);
+      res.status(201).json(await s.sgi.placeOrder(req.auth!.sub, { ...body, symbol: body.symbol.toUpperCase() }));
+    }),
+  );
+  r.get(
+    "/sgi/orders/:id/events",
+    guard,
+    asyncHandler((req, res) => {
+      const o = s.sgi.getOrder(Number(req.params.id));
+      const staff = s.sgi.staffSgiCode(req.auth!.sub);
+      if (!o || (o.user_id !== req.auth!.sub && staff !== o.sgi_code)) throw new Error("Ordre introuvable");
+      res.json(s.sgi.events(o.id));
+    }),
+  );
+  r.delete("/sgi/orders/:id", guard, asyncHandler((req, res) => res.json(s.sgi.cancelByClient(req.auth!.sub, Number(req.params.id)))));
+
+  // Console SGI (rôle sgi rattaché à un établissement, ou admin)
+  const sgiStaff = (req: { auth?: { sub: number } }): string => {
+    const code = s.sgi.staffSgiCode(req.auth!.sub);
+    if (!code) throw Object.assign(new Error("Réservé au personnel d'une SGI partenaire"), { status: 403 });
+    return code;
+  };
+  r.get("/sgi/console", guard, asyncHandler((req, res) => res.json({ sgiCode: sgiStaff(req), ...s.sgi.queue(sgiStaff(req)) })));
+  r.post(
+    "/sgi/console/orders/:id",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z
+        .object({
+          status: z.enum(["acknowledged", "executed", "partial", "rejected", "cancelled"]),
+          executedQty: z.number().int().positive().optional(),
+          executedPrice: z.number().positive().optional(),
+          reference: z.string().max(60).optional(),
+          message: z.string().max(300).optional(),
+        })
+        .parse(req.body);
+      res.json(s.sgi.updateBySgi(sgiStaff(req), Number(req.params.id), body.status as SgiOrderStatus, body));
+    }),
+  );
+  r.post(
+    "/sgi/console/accounts/:id",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ decision: z.enum(["verified", "rejected"]), accountNumber: z.string().max(40).optional(), note: z.string().max(300).optional() }).parse(req.body);
+      res.json(s.sgi.reviewAccount(sgiStaff(req), Number(req.params.id), body.decision, body.accountNumber, body.note));
+    }),
+  );
+  // Rattachement d'un collaborateur SGI (administrateur uniquement)
+  r.post(
+    "/sgi/staff",
+    guard,
+    asyncHandler((req, res) => {
+      if (req.auth!.role !== "admin") throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ email: z.string().email(), sgiCode: z.string() }).parse(req.body);
+      const user = s.db.prepare("SELECT id FROM users WHERE email = ?").get(body.email.toLowerCase()) as { id: number } | undefined;
+      if (!user) throw new Error("Utilisateur introuvable");
+      s.sgi.assignStaff(user.id, body.sgiCode);
+      res.json({ ok: true });
+    }),
+  );
+  // Webhook entrant du back-office partenaire : statuts d'exécution (signature HMAC-SHA256 du corps brut)
+  r.post(
+    "/sgi/webhook/:code",
+    asyncHandler((req, res) => {
+      const code = req.params.code.toUpperCase();
+      const raw = (req as unknown as { rawBody?: string }).rawBody ?? JSON.stringify(req.body);
+      if (!s.sgi.verifyWebhook(code, raw, req.headers["x-crackenmarket-signature"] as string | undefined)) {
+        return res.status(401).json({ error: "Signature invalide" });
+      }
+      const body = z
+        .object({
+          orderId: z.number().int(),
+          status: z.enum(["acknowledged", "executed", "partial", "rejected", "cancelled"]),
+          executedQty: z.number().int().positive().optional(),
+          executedPrice: z.number().positive().optional(),
+          reference: z.string().max(60).optional(),
+          message: z.string().max(300).optional(),
+        })
+        .parse(req.body);
+      res.json(s.sgi.updateBySgi(code, body.orderId, body.status as SgiOrderStatus, body));
     }),
   );
 

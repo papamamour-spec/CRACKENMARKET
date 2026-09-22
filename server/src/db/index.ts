@@ -203,6 +203,59 @@ function migrate(d: DB): void {
   addColumn(d, "orders", "take_profit", "REAL");
   addColumn(d, "orders", "stop_loss", "REAL");
   addColumn(d, "orders", "triggered_at", "INTEGER");
+  addColumn(d, "users", "sgi_code", "TEXT"); // pour le rôle « sgi » : établissement rattaché
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS sgi_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sgi_code TEXT NOT NULL,
+      status TEXT NOT NULL,            -- pending | verified | rejected
+      account_number TEXT,             -- numéro de compte-titres attribué par la SGI
+      holder_name TEXT NOT NULL,
+      id_type TEXT NOT NULL,
+      id_number TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      address TEXT NOT NULL,
+      country TEXT NOT NULL,
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (user_id, sgi_code)
+    );
+
+    CREATE TABLE IF NOT EXISTS sgi_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sgi_code TEXT NOT NULL,
+      account_number TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      type TEXT NOT NULL,              -- market | limit
+      quantity INTEGER NOT NULL,
+      limit_price REAL,
+      validity TEXT NOT NULL,          -- day | gtc | week
+      status TEXT NOT NULL,            -- pending | transmitted | acknowledged | executed | partial | rejected | cancelled
+      executed_qty INTEGER NOT NULL DEFAULT 0,
+      executed_price REAL,
+      sgi_reference TEXT,
+      estimated_amount REAL NOT NULL,
+      estimated_fees REAL NOT NULL,
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sgi_orders_user ON sgi_orders(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_sgi_orders_sgi ON sgi_orders(sgi_code, status);
+
+    CREATE TABLE IF NOT EXISTS sgi_order_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES sgi_orders(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      actor TEXT NOT NULL,             -- client | sgi | system
+      message TEXT,
+      ts INTEGER NOT NULL
+    );
+  `);
   d.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code)");
 }
 
