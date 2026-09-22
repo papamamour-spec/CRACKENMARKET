@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { OrderTicket } from "../components/OrderTicket";
+import { OrderBookPanel } from "../components/OrderBookPanel";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
@@ -85,8 +86,9 @@ export function InstrumentPage() {
           )}
         </div>
         <div className="grid">
+          <OrderBookPanel symbol={symbol} />
+          <OrderTicket quote={quote} defaultQuantity={rec?.suggestedQuantity || 10} suggestedTarget={rec?.targetPrice} suggestedStop={rec?.stopLoss} />
           {rec && <RecommendationCard rec={rec} detailed />}
-          <OrderTicket quote={quote} defaultQuantity={rec?.suggestedQuantity || 10} />
           <div className="card">
             <h3>Dernières transactions</h3>
             <table>

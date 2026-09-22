@@ -19,9 +19,13 @@ export function Layout() {
           <NavLink to="/marche">Marché</NavLink>
           <NavLink to="/conseiller">Conseiller</NavLink>
           <NavLink to="/portefeuille">Portefeuille</NavLink>
+          <NavLink to="/performance">Performance</NavLink>
+          <NavLink to="/actualites">Signaux & agenda</NavLink>
+          <NavLink to="/classement">Classement</NavLink>
           <NavLink to="/alertes">Suivi & alertes</NavLink>
           <NavLink to="/backtest">Backtest</NavLink>
           <NavLink to="/profil">Mon profil</NavLink>
+          <NavLink to="/compte">Compte</NavLink>
         </nav>
         {indices.map((i) => (
           <div key={i.name} className="kpi" style={{ minWidth: 120 }}>

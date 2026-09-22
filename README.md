@@ -21,7 +21,13 @@ chaque cotation.
 | Diagnostic & allocation | Santé, diversification, risque, exposition sectorielle, rééquilibrage suggéré, allocation cible |
 | Suivi & alertes | Liste de suivi, alertes de cours (seuil haut / bas / variation %), notifications temps réel |
 | Backtest | Croisement de moyennes mobiles, retour à la moyenne RSI, MACD, acheter-conserver ; courbe de capital et signaux |
-| Acteurs | Rôles investisseur, SGI, institutionnel, analyste |
+| Profondeur de marché | Carnet d'ordres 5 niveaux (reconstitué, diffusé en temps réel aux abonnés), déséquilibre acheteurs / vendeurs, transactions au fil de l'eau |
+| Ordres avancés | Marché, limite, stop, stop-limite, validité jour / jusqu'à annulation, ordres liés objectif + stop de protection (OCO), expiration automatique |
+| Signaux & agenda | Flux de signaux Kraken persistés et diffusés en direct, calendrier indicatif des dividendes, assemblées et publications |
+| Social | Classement des investisseurs (mois / total), profils publics anonymisés, suivi et flux des opérations des investisseurs suivis |
+| Performance | Instantanés quotidiens, courbe portefeuille vs BRVM Composite, Sharpe, drawdown, taux de réussite, facteur de profit, export CSV |
+| Compte | Double authentification TOTP, parrainage avec points, clés API (`X-API-Key`) pour SGI / institutionnels, profil public ou privé |
+| Acteurs | Rôles investisseur, SGI, institutionnel, analyste ; page d'accueil publique avec cote en direct ; application installable (PWA) |
 | Interface | Mode sombre et mode clair (bouton dans la barre supérieure, préférence mémorisée, réglage système respecté par défaut), graphiques adaptés au thème |
 
 ## Architecture
@@ -101,7 +107,12 @@ npm run typecheck
 | GET/POST/DELETE | `/api/portfolio`, `/api/portfolio/orders` | Portefeuille, ordres |
 | GET/POST/DELETE | `/api/watchlist/:symbol`, `/api/alerts` | Suivi, alertes |
 | GET | `/api/backtest/:symbol?strategy=sma_cross` | Backtest |
-| WS | `/ws?token=…` | `hello`, `quotes`, `indices`, `status`, `alert`, `order_filled` |
+| GET | `/api/market/book/:symbol`, `/api/market/signals`, `/api/market/events`, `/api/market/index-history` | Carnet, signaux, agenda, historique des indices |
+| GET | `/api/portfolio/performance`, `/api/portfolio/trades.csv` | Performance, export |
+| GET/POST/DELETE | `/api/social/leaderboard`, `/api/social/profile/:id`, `/api/social/follow/:id`, `/api/social/activity` | Classement, profils, suivi |
+| POST | `/api/auth/2fa/setup`, `/api/auth/2fa/enable`, `/api/auth/2fa/verify` | Double authentification |
+| GET/POST/DELETE | `/api/account/apikeys`, GET `/api/account/referrals`, PUT `/api/account/public` | Clés API, parrainage, visibilité |
+| WS | `/ws?token=…` | `hello`, `quotes`, `books` (valeurs abonnées via `{"type":"subscribe","symbols":[…]}`), `indices`, `status`, `alert`, `order_filled`, `signal` |
 
 ## Avertissement
 

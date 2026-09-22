@@ -6,6 +6,7 @@ import { LiveBrvmProvider } from "../data/providers/live.js";
 import { SimulationProvider, generateDailyHistory, isTradingDay } from "../data/providers/simulation.js";
 import type { MarketDataProvider, Quote } from "../data/providers/types.js";
 import type { Candle } from "../engine/indicators.js";
+import { buildOrderBook, type OrderBook } from "./orderbook.js";
 
 export interface QuoteSnapshot {
   symbol: string;
@@ -91,6 +92,8 @@ export class MarketService extends EventEmitter {
   private intraday = new Map<string, Candle[]>(); // bougies 1 minute de la séance
   private indexBase = new Map<string, number>();
   private lastValue = new Map<string, number>(); // capitaux cumulés (prix * volume approx.)
+  private books = new Map<string, OrderBook>();
+  private bookRand = mulberry32Seed(Date.now() & 0xffffffff);
   private started = false;
 
   constructor(private readonly db: DB) {
@@ -229,9 +232,65 @@ export class MarketService extends EventEmitter {
     });
     tx();
     if (updated.length) {
+      const books: OrderBook[] = [];
+      for (const q of updated) {
+        const inst = INSTRUMENT_MAP.get(q.symbol);
+        if (!inst) continue;
+        const b = buildOrderBook(inst, q.price, this.bookRand, 5, q.ts);
+        this.books.set(q.symbol, b);
+        books.push(b);
+      }
       this.emit("quotes", updated);
+      this.emit("books", books);
       this.emitIndices();
     }
+  }
+
+  /** Carnet d'ordres (reconstitué) d'une valeur. */
+  orderBook(symbol: string): OrderBook | undefined {
+    const existing = this.books.get(symbol);
+    if (existing) return existing;
+    const inst = INSTRUMENT_MAP.get(symbol);
+    const s = this.snapshots.get(symbol);
+    if (!inst || !s) return undefined;
+    const b = buildOrderBook(inst, s.price, this.bookRand, 5, s.ts);
+    this.books.set(symbol, b);
+    return b;
+  }
+
+  /**
+   * Historique quotidien des indices, recalculé à partir des clôtures (même pondération que
+   * les indices temps réel). Retourne les `days` dernières séances.
+   */
+  indexHistory(days = 400): { ts: number; composite: number; brvm30: number }[] {
+    const compBase = this.indexBase.get("BRVM Composite") ?? 1;
+    const b30Base = this.indexBase.get("BRVM 30") ?? 1;
+    // Index par date : close de chaque valeur
+    const byDate = new Map<number, Map<string, number>>();
+    for (const inst of INSTRUMENTS) {
+      const arr = this.candles.get(inst.symbol) ?? [];
+      for (const c of arr.slice(-days)) {
+        let m = byDate.get(c.ts);
+        if (!m) byDate.set(c.ts, (m = new Map()));
+        m.set(inst.symbol, c.close);
+      }
+    }
+    const lastKnown = new Map<string, number>();
+    const out: { ts: number; composite: number; brvm30: number }[] = [];
+    for (const ts of [...byDate.keys()].sort((a, b) => a - b)) {
+      const closes = byDate.get(ts)!;
+      let comp = 0;
+      let b30 = 0;
+      for (const inst of INSTRUMENTS) {
+        const px = closes.get(inst.symbol) ?? lastKnown.get(inst.symbol) ?? inst.refPrice;
+        lastKnown.set(inst.symbol, px);
+        const w = px * inst.avgVolume * 50;
+        comp += w;
+        if (inst.brvm30) b30 += w;
+      }
+      out.push({ ts, composite: round2(comp / compBase), brvm30: round2(b30 / b30Base) });
+    }
+    return out.slice(-days);
   }
 
   private updateIntraday(q: Quote, qty: number): void {
@@ -374,6 +433,17 @@ export class MarketService extends EventEmitter {
       .map(([sector, a]) => ({ sector, count: a.count, avgChangePct: round2(a.sum / a.count), value: Math.round(a.value) }))
       .sort((x, y) => y.avgChangePct - x.avgChangePct);
   }
+}
+
+function mulberry32Seed(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export function startOfDayUtc(ts: number): number {

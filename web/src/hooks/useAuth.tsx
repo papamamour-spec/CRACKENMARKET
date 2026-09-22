@@ -6,8 +6,10 @@ interface AuthCtx {
   user: User | null;
   profile: DeclaredProfile | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string, role: string) => Promise<void>;
+  /** Renvoie un jeton temporaire si la double authentification est requise, sinon null. */
+  login: (email: string, password: string) => Promise<string | null>;
+  verify2fa: (tempToken: string, code: string) => Promise<void>;
+  register: (email: string, password: string, fullName: string, role: string, referralCode?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -43,12 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = async (email: string, password: string) => {
-    const r = await post<{ user: User; token: string }>("/auth/login", { email, password });
+    const r = await post<{ user?: User; token?: string; requires2fa?: boolean; tempToken?: string }>("/auth/login", { email, password });
+    if (r.requires2fa && r.tempToken) return r.tempToken;
+    setToken(r.token ?? null);
+    await refresh();
+    return null;
+  };
+  const verify2fa = async (tempToken: string, code: string) => {
+    const r = await post<{ user: User; token: string }>("/auth/2fa/verify", { tempToken, code });
     setToken(r.token);
     await refresh();
   };
-  const register = async (email: string, password: string, fullName: string, role: string) => {
-    const r = await post<{ user: User; token: string }>("/auth/register", { email, password, fullName, role });
+  const register = async (email: string, password: string, fullName: string, role: string, referralCode?: string) => {
+    const r = await post<{ user: User; token: string }>("/auth/register", { email, password, fullName, role, referralCode: referralCode || undefined });
     setToken(r.token);
     await refresh();
   };
@@ -58,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   };
 
-  return <Ctx.Provider value={{ user, profile, loading, login, register, logout, refresh }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, profile, loading, login, verify2fa, register, logout, refresh }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth(): AuthCtx {

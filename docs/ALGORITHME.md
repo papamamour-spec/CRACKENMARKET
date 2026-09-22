@@ -62,3 +62,19 @@ liquidités).
 Chaque cotation reçue du fournisseur met à jour la bougie du jour, invalide le cache technique
 de la valeur, réévalue les ordres limites et les alertes, puis est diffusée par WebSocket. Les
 recommandations sont recalculées à la demande sur les données à jour (cache de 60 s par valeur).
+
+## 6. Signaux, carnet et exécution des ordres
+
+- **Flux de signaux** (`server/src/services/signals.ts`) : toutes les 5 minutes, les signaux
+  textuels de l'analyse technique de chaque valeur sont comparés aux signaux publiés dans les
+  24 dernières heures ; les nouveaux sont persistés et diffusés. Les variations de séance
+  supérieures à 5 % sont publiées immédiatement.
+- **Carnet d'ordres** (`server/src/services/orderbook.ts`) : la BRVM ne diffuse pas sa
+  profondeur en accès public. Le carnet est reconstitué à chaque cotation autour du dernier
+  cours (pas de cotation, écart fonction de la liquidité, tailles décroissantes, déséquilibre
+  aléatoire persistant) et signalé comme « estimé » dans l'interface. Un flux officiel se
+  branche en remplaçant `buildOrderBook`.
+- **Ordres** (`server/src/services/portfolio.ts`) : marché, limite, stop, stop-limite ; un
+  stop-limite déclenché devient une limite. Les ordres liés (objectif + stop de protection)
+  sont créés à l'exécution d'un achat dans un même groupe OCO ; l'exécution de l'un annule
+  l'autre. Les ordres « jour » expirent au changement de journée UTC.

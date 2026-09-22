@@ -42,7 +42,7 @@ export function PortfolioPage() {
         <div className="card kpi"><span className="label">P&L réalisé</span><span className={`value ${signClass(summary?.realizedPnl ?? 0)}`}>{fmtFcfa(summary?.realizedPnl ?? 0)}</span><span className="sub muted">{positions.length} ligne(s)</span></div>
       </div>
       <div className="card">
-        <div className="card-head"><h2>Positions</h2><Link to="/conseiller">Diagnostic du conseiller →</Link></div>
+        <div className="card-head"><h2>Positions</h2><span><Link to="/performance">Analyse de performance</Link> · <Link to="/conseiller">Diagnostic du conseiller →</Link></span></div>
         {positions.length === 0 ? (
           <p className="muted">Aucune position. Consultez le <Link to="/conseiller">conseiller</Link> pour vos premières idées.</p>
         ) : (
@@ -76,11 +76,11 @@ export function PortfolioPage() {
                 <td className="left mono muted">{fmtDateTime(o.created_at)}</td>
                 <td className="left sym">{o.symbol}</td>
                 <td className={`left ${o.side === "buy" ? "up" : "down"}`}>{o.side === "buy" ? "Achat" : "Vente"}</td>
-                <td className="left muted">{o.type === "market" ? "Marché" : "Limite"}</td>
+                <td className="left muted">{{ market: "Marché", limit: "Limite", stop: "Stop", stop_limit: "Stop-limite" }[o.type]}{o.oco_group ? " · OCO" : ""}{o.validity === "day" ? " · jour" : ""}</td>
                 <td className="mono">{o.quantity}</td>
-                <td className="mono">{o.limit_price ? fmtNum(o.limit_price) : "—"}</td>
+                <td className="mono">{o.stop_price ? `▸ ${fmtNum(o.stop_price)} ` : ""}{o.limit_price ? fmtNum(o.limit_price) : o.stop_price ? "" : "—"}</td>
                 <td className="mono">{o.filled_price ? fmtNum(o.filled_price) : "—"}</td>
-                <td className="left">{{ filled: "Exécuté", open: "En attente", cancelled: "Annulé", rejected: "Rejeté" }[o.status] ?? o.status}</td>
+                <td className="left">{{ filled: "Exécuté", open: o.triggered_at ? "Déclenché" : "En attente", cancelled: "Annulé", rejected: "Rejeté", expired: "Expiré" }[o.status] ?? o.status}</td>
                 <td>{o.status === "open" && <button className="btn sm" onClick={() => cancel(o.id)}>Annuler</button>}</td>
               </tr>
             ))}

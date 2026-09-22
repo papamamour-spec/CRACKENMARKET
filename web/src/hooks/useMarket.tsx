@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getToken } from "../lib/api";
-import type { IndexSnapshot, MarketStatus, Quote } from "../lib/types";
+import type { IndexSnapshot, MarketStatus, OrderBook, Quote, Signal } from "../lib/types";
 
 export interface Notification {
   id: number;
@@ -18,6 +18,12 @@ interface MarketCtx {
   dismiss: (id: number) => void;
   /** Symboles mis à jour lors du dernier tick (pour le flash visuel) */
   lastUpdated: Set<string>;
+  /** Carnets d'ordres des valeurs abonnées */
+  books: Map<string, OrderBook>;
+  /** Derniers signaux Kraken reçus en direct */
+  signals: Signal[];
+  /** Abonne la connexion au carnet d'ordres de ces valeurs (vide = aucune) */
+  subscribe: (symbols: string[]) => void;
 }
 
 const Ctx = createContext<MarketCtx | null>(null);
@@ -30,7 +36,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Set<string>>(new Set());
+  const [books, setBooks] = useState<Map<string, OrderBook>>(new Map());
+  const [signals, setSignals] = useState<Signal[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const subscribed = useRef<string[]>([]);
   const retry = useRef(0);
 
   useEffect(() => {
@@ -43,6 +52,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       ws.onopen = () => {
         setConnected(true);
         retry.current = 0;
+        if (subscribed.current.length) ws.send(JSON.stringify({ type: "subscribe", symbols: subscribed.current }));
       };
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
@@ -59,6 +69,16 @@ export function MarketProvider({ children }: { children: ReactNode }) {
               return next;
             });
             setLastUpdated(new Set((msg.quotes as Quote[]).map((q) => q.symbol)));
+            break;
+          case "books":
+            setBooks((prev) => {
+              const next = new Map(prev);
+              for (const b of msg.books as OrderBook[]) next.set(b.symbol, b);
+              return next;
+            });
+            break;
+          case "signal":
+            setSignals((prev) => [msg.signal as Signal, ...prev].slice(0, 50));
             break;
           case "indices":
             setIndices(msg.indices);
@@ -92,9 +112,15 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const subscribe = useCallback((symbols: string[]) => {
+    subscribed.current = symbols;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "subscribe", symbols }));
+  }, []);
+
   const value = useMemo<MarketCtx>(
-    () => ({ quotes, indices, status, connected, notifications, lastUpdated, dismiss: (id) => setNotifications((n) => n.filter((x) => x.id !== id)) }),
-    [quotes, indices, status, connected, notifications, lastUpdated],
+    () => ({ quotes, indices, status, connected, notifications, lastUpdated, books, signals, subscribe, dismiss: (id) => setNotifications((n) => n.filter((x) => x.id !== id)) }),
+    [quotes, indices, status, connected, notifications, lastUpdated, books, signals, subscribe],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -108,4 +134,14 @@ export function useMarket(): MarketCtx {
 export function useQuote(symbol: string | undefined): Quote | undefined {
   const { quotes } = useMarket();
   return symbol ? quotes.get(symbol) : undefined;
+}
+
+/** Abonne la page au carnet d'ordres d'une valeur et le renvoie. */
+export function useOrderBook(symbol: string | undefined): OrderBook | undefined {
+  const { books, subscribe } = useMarket();
+  useEffect(() => {
+    subscribe(symbol ? [symbol] : []);
+    return () => subscribe([]);
+  }, [symbol, subscribe]);
+  return symbol ? books.get(symbol) : undefined;
 }
