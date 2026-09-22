@@ -12,6 +12,8 @@ import { AlertService } from "./services/alerts.js";
 import { AuthService } from "./services/auth.js";
 import { MarketService } from "./services/market.js";
 import { PortfolioService } from "./services/portfolio.js";
+import { SignalService } from "./services/signals.js";
+import { SocialService } from "./services/social.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -23,7 +25,13 @@ async function main(): Promise<void> {
   const portfolios = new PortfolioService(db, market);
   const advisor = new AdvisorService(db, market, portfolios);
   const alerts = new AlertService(db);
-  const services = { db, auth, market, portfolios, advisor, alerts };
+  const social = new SocialService(db, portfolios);
+  const signals = new SignalService(db, market, advisor);
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals };
+  signals.start();
+  // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
+  portfolios.snapshotAll();
+  setInterval(() => portfolios.snapshotAll(), 15 * 60_000);
 
   const app = express();
   app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",") }));

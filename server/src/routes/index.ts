@@ -4,7 +4,10 @@ import { INSTRUMENTS, INSTRUMENT_MAP, SECTORS } from "../data/instruments.js";
 import { backtest } from "../engine/backtest.js";
 import { config } from "../config.js";
 import { indicatorSeries } from "../engine/technical.js";
-import { ROLES, type AuthService, type Role } from "../services/auth.js";
+import { POINTS, ROLES, type AuthService, type Role } from "../services/auth.js";
+import type { SocialService } from "../services/social.js";
+import type { SignalService } from "../services/signals.js";
+import { buildEventCalendar } from "../data/events.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -19,6 +22,8 @@ export interface Services {
   portfolios: PortfolioService;
   advisor: AdvisorService;
   alerts: AlertService;
+  social: SocialService;
+  signals: SignalService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -34,13 +39,14 @@ export function buildRouter(s: Services): Router {
     password: z.string().min(6),
     fullName: z.string().min(2),
     role: z.enum(ROLES as [Role, ...Role[]]).optional(),
+    referralCode: z.string().max(20).optional(),
   });
   r.post(
     "/auth/register",
     asyncHandler((req, res) => {
       const body = registerSchema.parse(req.body);
       const role = body.role === "admin" ? "investor" : (body.role ?? "investor");
-      const user = s.auth.register(body.email, body.password, body.fullName, role);
+      const user = s.auth.register(body.email, body.password, body.fullName, role, body.referralCode || undefined);
       res.status(201).json({ user, token: s.auth.sign(user) });
     }),
   );
@@ -49,9 +55,95 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       const body = z.object({ email: z.string().email(), password: z.string() }).parse(req.body);
       const user = s.auth.login(body.email, body.password);
+      if (user.totpEnabled) return res.json({ requires2fa: true, tempToken: s.auth.sign(user, { pre2fa: true }) });
       res.json({ user, token: s.auth.sign(user) });
     }),
   );
+  r.post(
+    "/auth/2fa/verify",
+    asyncHandler((req, res) => {
+      const body = z.object({ tempToken: z.string(), code: z.string() }).parse(req.body);
+      const payload = s.auth.verify(body.tempToken);
+      if (!payload.pre2fa) throw new Error("Jeton invalide");
+      if (!s.auth.verifyTotpFor(payload.sub, body.code)) throw new Error("Code invalide");
+      const user = s.auth.getUser(payload.sub)!;
+      res.json({ user, token: s.auth.sign(user) });
+    }),
+  );
+  r.post("/auth/2fa/setup", guard, asyncHandler((req, res) => res.json(s.auth.setupTotp(req.auth!.sub))));
+  r.post(
+    "/auth/2fa/enable",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ code: z.string() }).parse(req.body);
+      s.auth.enableTotp(req.auth!.sub, body.code);
+      res.json({ ok: true, user: s.auth.getUser(req.auth!.sub) });
+    }),
+  );
+  r.post(
+    "/auth/2fa/disable",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ code: z.string() }).parse(req.body);
+      s.auth.disableTotp(req.auth!.sub, body.code);
+      res.json({ ok: true, user: s.auth.getUser(req.auth!.sub) });
+    }),
+  );
+
+  // ---------- Compte : parrainage, visibilité, clés API ----------
+  r.get("/account/referrals", guard, (req, res) => res.json({ user: s.auth.getUser(req.auth!.sub), ...s.auth.referrals(req.auth!.sub), rewards: POINTS }));
+  r.put(
+    "/account/public",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ publicProfile: z.boolean() }).parse(req.body);
+      s.auth.setPublicProfile(req.auth!.sub, body.publicProfile);
+      res.json({ ok: true, user: s.auth.getUser(req.auth!.sub) });
+    }),
+  );
+  r.get("/account/apikeys", guard, (req, res) => res.json(s.auth.listApiKeys(req.auth!.sub)));
+  r.post(
+    "/account/apikeys",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ label: z.string().min(1).max(60) }).parse(req.body);
+      if (s.auth.listApiKeys(req.auth!.sub).length >= 5) throw new Error("5 clés maximum par compte");
+      res.status(201).json(s.auth.createApiKey(req.auth!.sub, body.label));
+    }),
+  );
+  r.delete("/account/apikeys/:id", guard, (req, res) => {
+    s.auth.revokeApiKey(req.auth!.sub, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // ---------- Social : classement, profils publics, suivi ----------
+  const optionalViewer = (req: { headers: Record<string, unknown> }): number | null => {
+    const header = String(req.headers.authorization ?? "");
+    if (!header.startsWith("Bearer ")) return null;
+    try {
+      return s.auth.verify(header.slice(7)).sub;
+    } catch {
+      return null;
+    }
+  };
+  r.get("/social/leaderboard", (req, res) => {
+    const period = req.query.period === "month" ? "month" : "all";
+    res.json(s.social.leaderboard(optionalViewer(req), period));
+  });
+  r.get("/social/profile/:id", asyncHandler((req, res) => res.json(s.social.publicProfile(Number(req.params.id), optionalViewer(req)))));
+  r.post(
+    "/social/follow/:id",
+    guard,
+    asyncHandler((req, res) => {
+      s.social.follow(req.auth!.sub, Number(req.params.id));
+      res.status(201).json({ ok: true });
+    }),
+  );
+  r.delete("/social/follow/:id", guard, (req, res) => {
+    s.social.unfollow(req.auth!.sub, Number(req.params.id));
+    res.json({ ok: true });
+  });
+  r.get("/social/activity", guard, (req, res) => res.json(s.social.followedActivity(req.auth!.sub)));
   r.get("/auth/me", guard, (req, res) => {
     const user = s.auth.getUser(req.auth!.sub);
     if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
@@ -84,6 +176,25 @@ export function buildRouter(s: Services): Router {
     if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
     res.json(s.advisor.technical(symbol));
   });
+  r.get("/market/book/:symbol", (req, res) => {
+    const book = s.market.orderBook(req.params.symbol.toUpperCase());
+    if (!book) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json(book);
+  });
+  r.get("/market/signals", (req, res) => {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    res.json(s.signals.latest(Math.min(300, Number(req.query.limit ?? 100)), symbol));
+  });
+  r.get("/market/events", (req, res) => {
+    const now = Date.now();
+    const from = Number(req.query.from ?? now - 30 * 86_400_000);
+    const to = Number(req.query.to ?? now + 120 * 86_400_000);
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : null;
+    const year = new Date(now).getUTCFullYear();
+    const all = [...buildEventCalendar(year), ...buildEventCalendar(year + 1)];
+    res.json(all.filter((e) => e.date >= from && e.date <= to && (!symbol || e.symbol === symbol || e.symbol === null)));
+  });
+  r.get("/market/index-history", (req, res) => res.json(s.market.indexHistory(Math.min(2000, Number(req.query.days ?? 400)))));
   r.get("/market/movers", (_req, res) => {
     const all = s.market.allSnapshots();
     const byChange = [...all].sort((a, b) => b.changePct - a.changePct);
@@ -144,12 +255,22 @@ export function buildRouter(s: Services): Router {
   r.get("/portfolio", guard, (req, res) => res.json(s.portfolios.summary(req.auth!.sub)));
   r.get("/portfolio/orders", guard, (req, res) => res.json(s.portfolios.orders(req.auth!.sub)));
   r.get("/portfolio/trades", guard, (req, res) => res.json(s.portfolios.trades(req.auth!.sub)));
+  r.get("/portfolio/trades.csv", guard, (req, res) => {
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition", 'attachment; filename="crackenmarket-operations.csv"');
+    res.send("\ufeff" + s.portfolios.tradesCsv(req.auth!.sub));
+  });
+  r.get("/portfolio/performance", guard, (req, res) => res.json(s.portfolios.performance(req.auth!.sub, Math.min(2000, Number(req.query.days ?? 365)))));
   const orderSchema = z.object({
     symbol: z.string().min(2).max(6),
     side: z.enum(["buy", "sell"]),
-    type: z.enum(["market", "limit"]).default("market"),
+    type: z.enum(["market", "limit", "stop", "stop_limit"]).default("market"),
     quantity: z.number().int().positive(),
     limitPrice: z.number().positive().optional(),
+    stopPrice: z.number().positive().optional(),
+    validity: z.enum(["day", "gtc"]).optional(),
+    takeProfit: z.number().positive().optional(),
+    stopLoss: z.number().positive().optional(),
     note: z.string().max(200).optional(),
   });
   r.post(
@@ -158,6 +279,7 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       const body = orderSchema.parse(req.body);
       const order = s.portfolios.placeOrder(req.auth!.sub, { ...body, symbol: body.symbol.toUpperCase() });
+      if (order.status === "filled") s.auth.addPointsOnce(req.auth!.sub, POINTS.firstOrder, "Premier ordre exécuté");
       res.status(201).json({ order, summary: s.portfolios.summary(req.auth!.sub) });
     }),
   );

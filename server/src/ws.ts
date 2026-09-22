@@ -2,6 +2,8 @@ import type { Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { Services } from "./routes/index.js";
 import type { QuoteSnapshot } from "./services/market.js";
+import type { OrderBook } from "./services/orderbook.js";
+import type { Signal } from "./services/signals.js";
 
 interface ClientState {
   userId: number | null;
@@ -11,7 +13,8 @@ interface ClientState {
 /**
  * Serveur WebSocket temps réel.
  * Messages client → serveur : { type: "subscribe", symbols: [...] } | { type: "auth", token } | { type: "ping" }
- * Messages serveur → client : quotes | indices | status | alert | order_filled | pong
+ * Messages serveur → client : quotes | books | indices | status | alert | order_filled | signal | pong
+ * Le carnet d'ordres n'est diffusé que pour les valeurs auxquelles le client est abonné.
  */
 export function attachWebSocket(server: Server, s: Services): WebSocketServer {
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -40,6 +43,8 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
         const msg = JSON.parse(String(raw));
         if (msg.type === "subscribe" && Array.isArray(msg.symbols)) {
           state.symbols = new Set(msg.symbols.map((x: string) => String(x).toUpperCase()));
+          const books = [...state.symbols].map((sym) => s.market.orderBook(sym)).filter((b): b is OrderBook => !!b);
+          if (books.length) send(ws, { type: "books", books });
         } else if (msg.type === "auth" && typeof msg.token === "string") {
           state.userId = s.auth.verify(msg.token).sub;
           send(ws, { type: "auth_ok", userId: state.userId });
@@ -66,6 +71,16 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
     for (const t of s.alerts.evaluate(quotes)) {
       for (const [ws, st] of clients) if (st.userId === t.alert.user_id) send(ws, { type: "alert", alert: t.alert, price: t.price, message: t.message });
     }
+  });
+  s.market.on("books", (books: OrderBook[]) => {
+    for (const [ws, st] of clients) {
+      if (!st.symbols.size) continue;
+      const mine = books.filter((b) => st.symbols.has(b.symbol));
+      if (mine.length) send(ws, { type: "books", books: mine });
+    }
+  });
+  s.signals.on("signal", (signal: Signal) => {
+    for (const ws of clients.keys()) send(ws, { type: "signal", signal });
   });
   s.market.on("indices", (indices) => {
     for (const ws of clients.keys()) send(ws, { type: "indices", indices });

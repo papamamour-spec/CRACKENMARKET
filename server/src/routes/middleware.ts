@@ -12,11 +12,20 @@ declare global {
 
 export function requireAuth(auth: AuthService) {
   return (req: Request, res: Response, next: NextFunction) => {
+    const apiKey = req.headers["x-api-key"];
+    if (typeof apiKey === "string" && apiKey) {
+      const payload = auth.verifyApiKey(apiKey);
+      if (!payload) return res.status(401).json({ error: "Clé API invalide" });
+      req.auth = payload;
+      return next();
+    }
     const header = req.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : (req.query.token as string | undefined);
     if (!token) return res.status(401).json({ error: "Authentification requise" });
     try {
-      req.auth = auth.verify(token);
+      const payload = auth.verify(token);
+      if (payload.pre2fa) return res.status(401).json({ error: "Code de double authentification requis" });
+      req.auth = payload;
       next();
     } catch {
       return res.status(401).json({ error: "Jeton invalide ou expiré" });

@@ -144,5 +144,69 @@ function migrate(d: DB): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+      day INTEGER NOT NULL,          -- début de journée UTC (ms)
+      total_value REAL NOT NULL,
+      cash REAL NOT NULL,
+      invested REAL NOT NULL,
+      PRIMARY KEY (portfolio_id, day)
+    );
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (follower_id, followed_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      kind TEXT NOT NULL,            -- bullish | bearish | neutral
+      message TEXT NOT NULL,
+      price REAL NOT NULL,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts);
+
+    CREATE TABLE IF NOT EXISTS points_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      points INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
   `);
+
+  // Colonnes ajoutées après la première version (migrations additives, idempotentes)
+  addColumn(d, "users", "referral_code", "TEXT");
+  addColumn(d, "users", "referred_by", "INTEGER");
+  addColumn(d, "users", "points", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(d, "users", "totp_secret", "TEXT");
+  addColumn(d, "users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(d, "users", "public_profile", "INTEGER NOT NULL DEFAULT 1");
+  addColumn(d, "orders", "stop_price", "REAL");
+  addColumn(d, "orders", "validity", "TEXT NOT NULL DEFAULT 'gtc'");
+  addColumn(d, "orders", "oco_group", "TEXT");
+  addColumn(d, "orders", "take_profit", "REAL");
+  addColumn(d, "orders", "stop_loss", "REAL");
+  addColumn(d, "orders", "triggered_at", "INTEGER");
+  d.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code)");
+}
+
+function addColumn(d: DB, table: string, column: string, definition: string): void {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

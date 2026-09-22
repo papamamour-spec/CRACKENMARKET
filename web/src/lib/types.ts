@@ -52,6 +52,10 @@ export interface User {
   email: string;
   fullName: string;
   role: string;
+  referralCode?: string;
+  points?: number;
+  totpEnabled?: boolean;
+  publicProfile?: boolean;
 }
 export interface DeclaredProfile {
   riskTolerance: number;
@@ -152,13 +156,20 @@ export interface PortfolioSummary {
   realizedPnl: number;
   unrealizedPnl: number;
 }
+export type OrderType = "market" | "limit" | "stop" | "stop_limit";
 export interface Order {
   id: number;
   symbol: string;
   side: "buy" | "sell";
-  type: "market" | "limit";
+  type: OrderType;
   quantity: number;
   limit_price: number | null;
+  stop_price: number | null;
+  validity: "day" | "gtc";
+  oco_group: string | null;
+  take_profit: number | null;
+  stop_loss: number | null;
+  triggered_at: number | null;
   status: string;
   filled_price: number | null;
   created_at: number;
@@ -223,4 +234,97 @@ export interface BacktestResult {
   maxDrawdownPct: number;
   equityCurve: SeriesPoint[];
   signals: { time: number; side: "buy" | "sell"; price: number }[];
+}
+
+export interface BookLevel {
+  price: number;
+  quantity: number;
+  orders: number;
+}
+export interface OrderBook {
+  symbol: string;
+  bids: BookLevel[];
+  asks: BookLevel[];
+  spread: number;
+  spreadPct: number;
+  imbalance: number;
+  ts: number;
+  estimated: boolean;
+}
+export interface Signal {
+  id: number;
+  symbol: string;
+  kind: "bullish" | "bearish" | "neutral";
+  message: string;
+  price: number;
+  ts: number;
+}
+export interface MarketEvent {
+  id: string;
+  symbol: string | null;
+  kind: "dividend" | "agm" | "results" | "market";
+  title: string;
+  date: number;
+  detail: string;
+  indicative: boolean;
+}
+export interface LeaderboardEntry {
+  userId: number;
+  displayName: string;
+  role: string;
+  totalReturnPct: number;
+  monthReturnPct: number;
+  lines: number;
+  trades: number;
+  points: number;
+  followers: number;
+  isFollowed: boolean;
+  topHoldings: string[];
+}
+export interface PerformanceStats {
+  totalReturnPct: number;
+  benchmarkReturnPct: number;
+  volatilityPct: number;
+  sharpe: number;
+  maxDrawdownPct: number;
+  trades: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  profitFactor: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  feesPaid: number;
+}
+export interface Performance {
+  series: { time: number; value: number; portfolioPct: number; benchmarkPct: number }[];
+  stats: PerformanceStats;
+}
+export interface PublicProfile {
+  userId: number;
+  displayName: string;
+  role: string;
+  points: number;
+  memberSince: number;
+  followers: number;
+  isFollowed: boolean;
+  totalReturnPct: number;
+  allocation: { symbol: string; sector: string; weightPct: number }[];
+  cashPct: number;
+  curve: { time: number; portfolioPct: number; benchmarkPct: number }[];
+  stats: PerformanceStats;
+  recentTrades: { symbol: string; side: "buy" | "sell"; ts: number; resultPct: number | null }[];
+}
+export interface ApiKey {
+  id: number;
+  label: string;
+  prefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+export interface Referrals {
+  user: User;
+  referred: { fullName: string; createdAt: number }[];
+  ledger: { points: number; reason: string; ts: number }[];
+  rewards: Record<string, number>;
 }
