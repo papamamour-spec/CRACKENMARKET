@@ -46,7 +46,7 @@ export function MarketPage() {
         </div>
       </div>
       {tab === "cote" ? (
-        <QuoteTable rows={rows} />
+        <QuoteTable rows={rows} showPeriodPicker />
       ) : (
         <table>
           <thead>

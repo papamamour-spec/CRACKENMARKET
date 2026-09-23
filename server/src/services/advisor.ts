@@ -10,7 +10,7 @@ import type { NewsService } from "./news.js";
 const TECH_TTL_MS = 60_000;
 
 export class AdvisorService {
-  private techCache = new Map<string, { at: number; snap: TechnicalSnapshot }>();
+  private techCache = new Map<string, { at: number; snap: TechnicalSnapshot & { updatedAt: number } }>();
 
   private news: NewsService | null = null;
 
@@ -34,10 +34,10 @@ export class AdvisorService {
     return this.news?.sentimentMap() ?? new Map();
   }
 
-  technical(symbol: string): TechnicalSnapshot {
+  technical(symbol: string): TechnicalSnapshot & { updatedAt: number } {
     const cached = this.techCache.get(symbol);
     if (cached && Date.now() - cached.at < TECH_TTL_MS) return cached.snap;
-    const snap = analyze(symbol, this.market.history(symbol, 400));
+    const snap = { ...analyze(symbol, this.market.history(symbol, 400)), updatedAt: Date.now() };
     this.techCache.set(symbol, { at: Date.now(), snap });
     return snap;
   }

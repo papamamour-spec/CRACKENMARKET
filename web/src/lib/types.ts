@@ -15,7 +15,13 @@ export interface Quote {
   ts: number;
   source: "live" | "simulation";
   brvm30: boolean;
+  perf: Record<Period, number | null>;
+  high52: number;
+  low52: number;
 }
+export type Period = "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y";
+export const PERIODS: Period[] = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"];
+export const PERIOD_LABEL: Record<Period, string> = { "1D": "Veille", "1W": "1 sem.", "1M": "1 mois", "3M": "3 mois", "6M": "6 mois", YTD: "Année", "1Y": "1 an", "3Y": "3 ans", "5Y": "5 ans" };
 export interface IndexSnapshot {
   name: string;
   value: number;
@@ -107,6 +113,7 @@ export interface Recommendation {
 export interface Technical {
   symbol: string;
   price: number;
+  updatedAt?: number;
   sma20: number;
   sma50: number;
   sma200: number;
