@@ -7,14 +7,13 @@ import { compact, fmtNum, fmtPct, signClass } from "../lib/format";
 import type { LeaderboardEntry, Signal } from "../lib/types";
 
 const FEATURES = [
-  ["Profondeur de marché en direct", "Carnet d'ordres, transactions au fil de l'eau, déséquilibre acheteurs / vendeurs : ce que seuls les terminaux des SGI affichaient."],
-  ["Ordres de professionnel", "Stop, stop-limite, ordres liés objectif + stop de protection, validité jusqu'à annulation. Exécutés et surveillés à chaque cotation."],
-  ["Conseiller Kraken", "Un moteur qui croise cinq ans d'historique, 15 indicateurs et votre propre comportement pour vous dire quoi acheter, quand, et combien."],
-  ["Signaux en temps réel", "Croisements de moyennes, surventes, cassures, volumes anormaux : chaque signal détecté est publié à la seconde."],
-  ["Classement des investisseurs", "Comparez-vous, suivez les meilleurs, voyez leurs opérations. Le concours du mois récompense les plus disciplinés."],
-  ["Calendrier des dividendes", "Détachements, assemblées, publications : ne ratez plus aucun rendez-vous des 46 sociétés cotées."],
-  ["Analyse de performance", "Courbe de capital face au BRVM Composite, ratio de Sharpe, drawdown, taux de réussite, export Excel."],
-  ["Ordres réels via votre SGI", "Ouvrez votre compte-titres chez Matha Capital depuis la plateforme et transmettez vos ordres réels en un clic, avec suivi d'exécution en temps réel."],
+  ["Conseil de placement chiffré", "Décrivez votre capital, votre objectif et votre horizon : vous recevez une allocation motivée valeur par valeur, avec rendement attendu, scénarios et réserve de liquidités."],
+  ["Relecture par un analyste", "Chaque proposition du moteur Kraken est relue, annotée et validée par un analyste avant d'être présentée comme conseil."],
+  ["Un guichet pour les SGI", "Les sociétés de gestion sollicitent la plateforme pour les placements de leurs clients et présentent un rapport prêt à signer."],
+  ["Conseiller qui vous connaît", "Le moteur croise cinq ans d'historique, 15 indicateurs et votre comportement réel pour adapter chaque recommandation à votre profil."],
+  ["Suivi du portefeuille", "Santé, diversification, risque, rééquilibrage suggéré et performance face au BRVM Composite, recalculés à chaque cotation."],
+  ["Signaux et agenda", "Croisements, surventes, cassures publiés en direct ; dividendes, assemblées et résultats des 46 sociétés cotées."],
+  ["Exécution par votre SGI", "Ouvrez votre compte-titres chez Matha Capital depuis la plateforme et faites exécuter les conseils, avec suivi en temps réel."],
   ["Sécurité de niveau bancaire", "Double authentification, clés API pour les SGI et institutionnels, application installable sur mobile."],
 ];
 
@@ -51,11 +50,11 @@ export function LandingPage() {
       <div className="landing">
         <section className="hero">
           <div>
-            <h1>La BRVM comme vous ne l'avez <span>jamais vue</span>.</h1>
-            <p>Cours en temps réel, carnet d'ordres, ordres avancés et un conseiller algorithmique qui apprend de votre comportement. La première plateforme de la place d'Abidjan au niveau des grandes bourses mondiales.</p>
+            <h1>Le conseil en investissement de la <span>BRVM</span>.</h1>
+            <p>Dites-nous combien placer, pour quel objectif et sur quel horizon : CrackenMarket vous propose une allocation motivée et chiffrée, relue par un analyste, puis exécutée par votre SGI. Particuliers, institutionnels et SGI y trouvent le même guichet.</p>
             <div className="cta">
-              <Link to="/connexion?inscription=1" className="btn primary">Créer mon compte · 5 000 000 FCFA virtuels offerts</Link>
-              <Link to="/classement" className="btn">Voir le classement</Link>
+              <Link to="/connexion?inscription=1" className="btn primary">Demander un conseil de placement</Link>
+              <Link to="/connexion?inscription=1" className="btn">Je suis une SGI</Link>
             </div>
             <div className="stat-row">
               {indices.map((i) => <div key={i.name} className="kpi"><span className="label">{i.name}</span><span className="value">{fmtNum(i.value, 2)}</span><span className={`sub ${signClass(i.changePct)}`}>{fmtPct(i.changePct)}</span></div>)}

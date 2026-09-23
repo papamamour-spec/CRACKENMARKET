@@ -15,18 +15,20 @@ export function Layout() {
           Cracken<span>Market</span>
         </div>
         <nav className="nav">
-          <NavLink to="/" end>Tableau de bord</NavLink>
-          <NavLink to="/marche">Marché</NavLink>
-          <NavLink to="/conseiller">Conseiller</NavLink>
+          <NavLink to="/" end>Accueil</NavLink>
+          <NavLink to="/conseiller">Mes conseils</NavLink>
+          <NavLink to="/conseil">{user?.role === "sgi" ? "Placements clients" : "Demander un conseil"}</NavLink>
+          {(user?.role === "analyst" || user?.role === "admin") && <NavLink to="/conseil/analyste">Revue analyste</NavLink>}
           <NavLink to="/portefeuille">Portefeuille</NavLink>
           <NavLink to="/performance">Performance</NavLink>
           <NavLink to="/actualites">Signaux & agenda</NavLink>
+          <NavLink to="/marche">Marché</NavLink>
           <NavLink to="/classement">Classement</NavLink>
           <NavLink to="/alertes">Suivi & alertes</NavLink>
+          <NavLink to="/sgi">{user?.role === "sgi" ? "Comptes-titres" : "Ma SGI"}</NavLink>
+          {(user?.role === "sgi" || user?.role === "admin") && <NavLink to="/sgi/console">Console SGI</NavLink>}
           <NavLink to="/backtest">Backtest</NavLink>
           <NavLink to="/profil">Mon profil</NavLink>
-          <NavLink to="/sgi">Ordres réels (SGI)</NavLink>
-          {(user?.role === "sgi" || user?.role === "admin") && <NavLink to="/sgi/console">Console SGI</NavLink>}
           <NavLink to="/compte">Compte</NavLink>
         </nav>
         {indices.map((i) => (

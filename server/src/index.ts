@@ -15,6 +15,8 @@ import { PortfolioService } from "./services/portfolio.js";
 import { SignalService } from "./services/signals.js";
 import { SocialService } from "./services/social.js";
 import { SgiService } from "./services/sgi.js";
+import { AdvisoryService } from "./services/advisory.js";
+import { NewsService } from "./services/news.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -29,7 +31,12 @@ async function main(): Promise<void> {
   const social = new SocialService(db, portfolios);
   const signals = new SignalService(db, market, advisor);
   const sgi = new SgiService(db, market);
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi };
+  const advisory = new AdvisoryService(db, market, advisor);
+  const news = new NewsService(db);
+  advisor.attachNews(news);
+  advisory.attachNews(news);
+  news.start();
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

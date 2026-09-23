@@ -9,6 +9,8 @@ import type { SocialService } from "../services/social.js";
 import type { SignalService } from "../services/signals.js";
 import { buildEventCalendar } from "../data/events.js";
 import type { SgiService, SgiOrderStatus } from "../services/sgi.js";
+import type { AdvisoryService } from "../services/advisory.js";
+import type { NewsService } from "../services/news.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -26,6 +28,8 @@ export interface Services {
   social: SocialService;
   signals: SignalService;
   sgi: SgiService;
+  advisory: AdvisoryService;
+  news: NewsService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -196,6 +200,27 @@ export function buildRouter(s: Services): Router {
     const all = [...buildEventCalendar(year), ...buildEventCalendar(year + 1)];
     res.json(all.filter((e) => e.date >= from && e.date <= to && (!symbol || e.symbol === symbol || e.symbol === null)));
   });
+  r.get("/market/news", (req, res) => {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    res.json({ items: s.news.latest(Math.min(200, Number(req.query.limit ?? 50)), symbol), market: s.news.marketSentiment(), symbolSentiment: symbol ? s.news.sentimentFor(symbol) : null, status: s.news.status() });
+  });
+  r.post(
+    "/market/news",
+    guard,
+    asyncHandler((req, res) => {
+      if (req.auth!.role !== "analyst" && req.auth!.role !== "admin") throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ source: z.string().min(2).max(60), title: z.string().min(5).max(300), url: z.string().url(), summary: z.string().max(1000).optional(), publishedAt: z.number().optional() }).parse(req.body);
+      res.status(201).json(s.news.addManual(body.source, body.title, body.url, body.summary ?? null, body.publishedAt));
+    }),
+  );
+  r.post(
+    "/market/news/refresh",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (req.auth!.role !== "analyst" && req.auth!.role !== "admin") throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ inserted: await s.news.refresh(), status: s.news.status() });
+    }),
+  );
   r.get("/market/index-history", (req, res) => res.json(s.market.indexHistory(Math.min(2000, Number(req.query.days ?? 400)))));
   r.get("/market/movers", (_req, res) => {
     const all = s.market.allSnapshots();
@@ -291,6 +316,76 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       s.portfolios.cancelOrder(req.auth!.sub, Number(req.params.id));
       res.json({ ok: true });
+    }),
+  );
+
+  // ---------- Guichet de conseil en investissement (clients et SGI) ----------
+  const advisorySchema = z.object({
+    capital: z.number().positive().max(1e12),
+    objective: z.enum(["income", "growth", "balanced", "speculative"]),
+    horizonMonths: z.number().int().min(1).max(480),
+    riskTolerance: z.number().int().min(1).max(5),
+    preferredSectors: z.array(z.string()).max(10).optional(),
+    constraints: z.string().max(600).optional(),
+    holdings: z.array(z.object({ symbol: z.string().min(2).max(6), quantity: z.number().int().positive(), avgPrice: z.number().positive().optional() })).max(60).optional(),
+    clientLabel: z.string().max(120).optional(),
+    /** une SGI peut aussi demander un conseil pour elle-même */
+    asSgi: z.boolean().optional(),
+  });
+  const isAnalyst = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
+  r.post(
+    "/advisory/requests",
+    guard,
+    asyncHandler((req, res) => {
+      const body = advisorySchema.parse(req.body);
+      const staffCode = s.sgi.staffSgiCode(req.auth!.sub);
+      const asSgi = !!staffCode && req.auth!.role === "sgi" && body.asSgi !== false;
+      const view = s.advisory.create(req.auth!.sub, asSgi ? "sgi" : "client", asSgi ? staffCode : null, { ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) });
+      res.status(201).json(view);
+    }),
+  );
+  r.post(
+    "/advisory/preview",
+    guard,
+    asyncHandler((req, res) => {
+      const body = advisorySchema.parse(req.body);
+      res.json(s.advisory.generateReport({ ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) }));
+    }),
+  );
+  r.get("/advisory/requests", guard, (req, res) => {
+    const staffCode = s.sgi.staffSgiCode(req.auth!.sub);
+    res.json(staffCode && req.auth!.role === "sgi" ? s.advisory.listForSgi(staffCode) : s.advisory.listForUser(req.auth!.sub));
+  });
+  r.get(
+    "/advisory/requests/:id",
+    guard,
+    asyncHandler((req, res) => {
+      const v = s.advisory.get(Number(req.params.id));
+      const staffCode = s.sgi.staffSgiCode(req.auth!.sub);
+      if (!v || (v.user_id !== req.auth!.sub && !isAnalyst(req) && !(staffCode && v.sgi_code === staffCode))) throw new Error("Demande introuvable");
+      res.json(v);
+    }),
+  );
+  r.post(
+    "/advisory/requests/:id/regenerate",
+    guard,
+    asyncHandler((req, res) => res.json(s.advisory.regenerate(Number(req.params.id), isAnalyst(req) ? null : req.auth!.sub))),
+  );
+  r.get(
+    "/advisory/inbox",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ requests: s.advisory.inbox(), stats: s.advisory.stats() });
+    }),
+  );
+  r.post(
+    "/advisory/requests/:id/review",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ decision: z.enum(["validated", "declined"]), note: z.string().max(2000).optional() }).parse(req.body);
+      res.json(s.advisory.review(req.auth!.sub, Number(req.params.id), body.decision, body.note));
     }),
   );
 

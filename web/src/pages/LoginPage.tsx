@@ -88,7 +88,7 @@ export function LoginPage() {
         </form>
         )}
         <p style={{ textAlign: "center", marginTop: 12, fontSize: 12 }}><Link to="/">← Retour à la cote publique</Link></p>
-        <p className="disclaimer">Plateforme d'aide à la décision sur la BRVM. Chaque nouveau compte reçoit un portefeuille virtuel de 5 000 000 FCFA pour s'entraîner. Les conseils générés ne constituent pas une recommandation d'investissement personnalisée au sens réglementaire.</p>
+        <p className="disclaimer">Plateforme de conseil en investissement sur la BRVM : demandes de placement pour les particuliers et les SGI, propositions relues par un analyste, exécution par une SGI agréée. Un portefeuille virtuel de 5 000 000 FCFA permet de s'entraîner. Les conseils ne constituent pas une recommandation personnalisée au sens réglementaire.</p>
       </div>
     </div>
   );

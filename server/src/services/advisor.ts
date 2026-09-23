@@ -5,11 +5,14 @@ import { diagnosePortfolio, proposeAllocation, recommend, type Recommendation } 
 import { analyze, type TechnicalSnapshot } from "../engine/technical.js";
 import type { MarketService } from "./market.js";
 import type { PortfolioService } from "./portfolio.js";
+import type { NewsService } from "./news.js";
 
 const TECH_TTL_MS = 60_000;
 
 export class AdvisorService {
   private techCache = new Map<string, { at: number; snap: TechnicalSnapshot }>();
+
+  private news: NewsService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -20,6 +23,15 @@ export class AdvisorService {
     market.on("quotes", (qs: { symbol: string }[]) => {
       for (const q of qs) this.techCache.delete(q.symbol);
     });
+  }
+
+  /** Branche la veille d'actualité : son sentiment tempère les recommandations. */
+  attachNews(news: NewsService): void {
+    this.news = news;
+  }
+
+  newsContext() {
+    return this.news?.sentimentMap() ?? new Map();
   }
 
   technical(symbol: string): TechnicalSnapshot {
@@ -76,7 +88,7 @@ export class AdvisorService {
     const profile = this.behaviorProfile(userId);
     const pf = this.portfolios.getForUser(userId);
     const positions = this.positionRecords(userId);
-    const ctx = { profile, positions, cash: pf.cash };
+    const ctx = { profile, positions, cash: pf.cash, news: this.newsContext() };
     const recs = INSTRUMENTS.map((i) => recommend(this.technical(i.symbol), ctx)).sort((a, b) => b.score - a.score);
     return { profile, recommendations: recs };
   }
@@ -84,7 +96,7 @@ export class AdvisorService {
   recommendationFor(userId: number, symbol: string): Recommendation {
     const profile = this.behaviorProfile(userId);
     const pf = this.portfolios.getForUser(userId);
-    return recommend(this.technical(symbol), { profile, positions: this.positionRecords(userId), cash: pf.cash });
+    return recommend(this.technical(symbol), { profile, positions: this.positionRecords(userId), cash: pf.cash, news: this.newsContext() });
   }
 
   portfolioDiagnostic(userId: number) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { OrderTicket } from "../components/OrderTicket";
 import { OrderBookPanel } from "../components/OrderBookPanel";
+import { NewsPanel } from "../components/NewsPanel";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
@@ -86,19 +87,26 @@ export function InstrumentPage() {
           )}
         </div>
         <div className="grid">
-          <OrderBookPanel symbol={symbol} />
-          <OrderTicket quote={quote} defaultQuantity={rec?.suggestedQuantity || 10} suggestedTarget={rec?.targetPrice} suggestedStop={rec?.stopLoss} />
           {rec && <RecommendationCard rec={rec} detailed />}
-          <div className="card">
-            <h3>Dernières transactions</h3>
-            <table>
-              <tbody>
-                {ticks.map((t, i) => (
-                  <tr key={i}><td className="left mono muted">{fmtTime(t.ts)}</td><td className="mono">{fmtNum(t.price)}</td><td className="mono muted">{fmtNum(t.volume)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <NewsPanel symbol={symbol} limit={8} title={`Actualité ${symbol}`} />
+          <details className="card">
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Négocier cette valeur (carnet d'ordres, ticket, transactions)</summary>
+            <p className="muted" style={{ fontSize: 12 }}>Réservé aux investisseurs qui souhaitent passer eux-mêmes leurs ordres. Le conseil ci-dessus reste la référence ; l'exécution réelle passe par votre SGI.</p>
+            <div className="grid" style={{ marginTop: 8 }}>
+              <OrderBookPanel symbol={symbol} />
+              <OrderTicket quote={quote} defaultQuantity={rec?.suggestedQuantity || 10} suggestedTarget={rec?.targetPrice} suggestedStop={rec?.stopLoss} />
+              <div className="card">
+                <h3>Dernières transactions</h3>
+                <table>
+                  <tbody>
+                    {ticks.map((t, i) => (
+                      <tr key={i}><td className="left mono muted">{fmtTime(t.ts)}</td><td className="mono">{fmtNum(t.price)}</td><td className="mono muted">{fmtNum(t.volume)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
     </div>
