@@ -399,3 +399,94 @@ export const SGI_STATUS_LABEL: Record<SgiOrderStatus, string> = {
   rejected: "Rejeté",
   cancelled: "Annulé",
 };
+
+export interface AllocationLine {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  quantity: number;
+  amount: number;
+  weightPct: number;
+  dividendYield: number;
+  expectedReturnPct: number;
+  fitScore: number;
+  rationale: string[];
+}
+export interface AdvisoryReport {
+  generatedAt: number;
+  style: string;
+  capital: number;
+  investable: number;
+  cashReserve: number;
+  cashReservePct: number;
+  allocation: AllocationLine[];
+  sectorBreakdown: { sector: string; weightPct: number }[];
+  metrics: {
+    lines: number;
+    expectedDividendYieldPct: number;
+    expectedReturnPct: number;
+    annualizedReturnPct: number;
+    estimatedVolatilityPct: number;
+    maxLineWeightPct: number;
+    annualDividendIncome: number;
+  };
+  scenarios: { pessimistic: number; central: number; optimistic: number; horizonMonths: number };
+  existing: { diagnostic: Diagnostic; actions: Diagnostic["rebalancing"] } | null;
+  newsContext?: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
+  summary: string[];
+  warnings: string[];
+}
+export type AdvisoryStatus = "generated" | "validated" | "declined";
+export interface AdvisoryView {
+  id: number;
+  user_id: number;
+  requester_type: "client" | "sgi";
+  sgi_code: string | null;
+  client_label: string | null;
+  capital: number;
+  objective: string;
+  horizon_months: number;
+  risk_tolerance: number;
+  preferred_sectors: string[];
+  constraints: string | null;
+  holdings: { symbol: string; quantity: number; avgPrice?: number }[];
+  status: AdvisoryStatus;
+  report: AdvisoryReport;
+  analyst_id: number | null;
+  analyst_note: string | null;
+  reviewed_at: number | null;
+  created_at: number;
+  updated_at: number;
+  requester_name?: string;
+  requester_email?: string;
+}
+export const ADVISORY_STATUS_LABEL: Record<AdvisoryStatus, string> = {
+  generated: "Proposition Kraken générée",
+  validated: "Validée par un analyste",
+  declined: "Non retenue par l'analyste",
+};
+
+export interface NewsView {
+  id: number;
+  source: string;
+  title: string;
+  url: string;
+  summary: string | null;
+  published_at: number;
+  symbols: string[];
+  sentiment: number;
+  market_wide: number;
+  fetched_at: number;
+}
+export interface NewsSentiment {
+  score: number;
+  count: number;
+  headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[];
+}
+export interface NewsResponse {
+  items: NewsView[];
+  market: NewsSentiment;
+  symbolSentiment: NewsSentiment | null;
+  status: { sources: string[]; items: number; lastRun: { at: number; ok: string[]; failed: string[] } | null };
+}

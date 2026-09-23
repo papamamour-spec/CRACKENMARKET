@@ -83,6 +83,11 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             setNotifications((n) => [{ id: notifId++, kind: "order" as const, message: `Ordre réel ${o.side === "buy" ? "achat" : "vente"} ${o.quantity} ${o.symbol} : ${label[o.status] ?? o.status}${o.executed_price ? ` à ${o.executed_price}` : ""}`, ts: Date.now() }, ...n].slice(0, 20));
             break;
           }
+          case "advisory": {
+            const a = msg.request;
+            setNotifications((n) => [{ id: notifId++, kind: "info" as const, message: `Demande de conseil n° ${a.id}${a.client_label ? ` (${a.client_label})` : ""} : ${a.status === "validated" ? "validée par un analyste" : "revue par un analyste"}${a.analyst_note ? ` · ${a.analyst_note}` : ""}`, ts: Date.now() }, ...n].slice(0, 20));
+            break;
+          }
           case "sgi_account": {
             const a = msg.account;
             const label: Record<string, string> = { pending: "demande reçue", verified: `validé (n° ${a.account_number})`, rejected: "refusé" };

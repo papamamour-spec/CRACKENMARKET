@@ -1,8 +1,10 @@
-# CrackenMarket – Plateforme boursière BRVM avec conseiller algorithmique
+# CrackenMarket – Conseil en investissement sur la BRVM
 
-CrackenMarket est une plateforme de suivi de marché et d'aide à la décision dédiée à la
-**BRVM** (Bourse Régionale des Valeurs Mobilières de l'UEMOA), dans l'esprit de ProRealTime
-(graphiques et analyse technique) et de RichBourse (suivi de la cote, portefeuille).
+CrackenMarket est une plateforme de **conseil en investissement** dédiée à la **BRVM** (Bourse
+Régionale des Valeurs Mobilières de l'UEMOA). Particuliers, institutionnels et SGI y déposent
+leurs demandes de placement ; le moteur Kraken produit une allocation motivée et chiffrée, relue
+par un analyste, que la SGI du client exécute. Le suivi de marché, les graphiques et la
+négociation restent disponibles au second plan.
 
 Son moteur **Kraken** croise l'historique de marché de chaque valeur et le comportement
 observé de l'investisseur pour produire des recommandations personnalisées, mises à jour à
@@ -12,6 +14,8 @@ chaque cotation.
 
 | Domaine | Détail |
 | --- | --- |
+| Guichet de conseil | Demande de placement (capital, objectif, horizon, risque, contraintes, portefeuille existant) pour les particuliers et, pour les SGI, au nom de leurs clients ; rapport Kraken : allocation valeur par valeur, rendement de dividende, performance visée, volatilité, scénarios à l'horizon, diagnostic de l'existant ; revue, annotation et validation par un analyste ; aperçu avant envoi, impression PDF |
+| Veille d'actualité | Collecte périodique BRVM et presse financière (RSS ou HTML, sources configurables), rattachement aux valeurs par dictionnaire d'alias, sentiment lexical français ; le sentiment récent tempère les recommandations (± 12 points, avertissement) et relève la réserve de liquidités des rapports en cas d'actualité de place défavorable ; ajout manuel par les analystes |
 | Cote temps réel | 46 valeurs de la BRVM, indices BRVM Composite et BRVM 30, palmarès, secteurs, bandeau défilant, diffusion WebSocket |
 | Graphiques | Chandeliers intraday / jour / semaine / mois, volumes, MM20/50/200, Bollinger, sous-fenêtres RSI et MACD, mise à jour tick par tick |
 | Analyse technique | RSI, MACD, Bollinger, ATR, stochastique, OBV, volatilité, drawdown, Sharpe, supports/résistances, scores tendance / momentum / retour à la moyenne / volumes / risque |
@@ -113,6 +117,9 @@ npm run typecheck
 | GET/POST/DELETE | `/api/social/leaderboard`, `/api/social/profile/:id`, `/api/social/follow/:id`, `/api/social/activity` | Classement, profils, suivi |
 | POST | `/api/auth/2fa/setup`, `/api/auth/2fa/enable`, `/api/auth/2fa/verify` | Double authentification |
 | GET/POST/DELETE | `/api/account/apikeys`, GET `/api/account/referrals`, PUT `/api/account/public` | Clés API, parrainage, visibilité |
+| GET/POST | `/api/advisory/requests`, `/api/advisory/preview`, `/api/advisory/requests/:id`, `/api/advisory/requests/:id/regenerate` | Demandes de conseil (client ou SGI) et rapports |
+| GET/POST | `/api/advisory/inbox`, `/api/advisory/requests/:id/review` | Revue par les analystes |
+| GET/POST | `/api/market/news`, `/api/market/news` (analyste), `/api/market/news/refresh` | Veille d'actualité et sentiment |
 | GET/POST/DELETE | `/api/sgi/partners`, `/api/sgi/accounts`, `/api/sgi/orders`, `/api/sgi/orders/:id/events` | SGI partenaires, compte-titres, ordres réels |
 | GET/POST | `/api/sgi/console`, `/api/sgi/console/orders/:id`, `/api/sgi/console/accounts/:id`, `/api/sgi/staff`, `/api/sgi/webhook/:code` | Console SGI, rattachement du personnel (admin), webhook du back-office |
 | WS | `/ws?token=…` | `hello`, `quotes`, `books` (valeurs abonnées via `{"type":"subscribe","symbols":[…]}`), `indices`, `status`, `alert`, `order_filled`, `signal` |

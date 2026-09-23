@@ -78,3 +78,22 @@ recommandations sont recalculées à la demande sur les données à jour (cache 
   stop-limite déclenché devient une limite. Les ordres liés (objectif + stop de protection)
   sont créés à l'exécution d'un achat dans un même groupe OCO ; l'exécution de l'un annule
   l'autre. Les ordres « jour » expirent au changement de journée UTC.
+
+## 7. Guichet de conseil et veille d'actualité
+
+- **Demande de placement** (`server/src/services/advisory.ts`) : la demande (capital, objectif,
+  horizon, tolérance, secteurs, contraintes, portefeuille existant) est convertie en profil
+  déclaré ; chaque valeur est notée par `recommend`, puis `proposeAllocation` construit
+  l'allocation (max. 3 valeurs par secteur, 6 à 8 lignes, réserve de liquidités selon le profil).
+  Le rapport agrège rendement de dividende, performance visée sur l'horizon (annualisée),
+  volatilité pondérée (moins 20 % d'effet de diversification) et trois scénarios à l'horizon
+  (± une volatilité). Un portefeuille existant est diagnostiqué et des actions de rééquilibrage
+  proposées. Les analystes relisent, annotent, valident ou écartent ; ils peuvent régénérer le
+  rapport avec le marché du jour.
+- **Veille d'actualité** (`server/src/services/news.ts`) : sources BRVM et presse financière
+  (RSS ou page HTML), rattachement aux valeurs par alias avec frontières de mots, sentiment
+  lexical français borné à [-1, 1], agrégation pondérée par la fraîcheur sur 14 jours.
+  Dans `recommend`, un sentiment d'au moins ±0,15 déplace le score de ±12 points au maximum,
+  ajoute une justification ou un avertissement, et une actualité défavorable réduit la
+  confiance. Dans les rapports, un sentiment de place ≤ -0,2 relève la réserve de liquidités de
+  5 points et recommande un déploiement progressif.

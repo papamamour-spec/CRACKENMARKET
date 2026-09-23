@@ -4,6 +4,7 @@ import { useMarket } from "../hooks/useMarket";
 import { api } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtNum } from "../lib/format";
 import type { MarketEvent, Signal } from "../lib/types";
+import { NewsPanel } from "../components/NewsPanel";
 
 const KIND_LABEL: Record<MarketEvent["kind"], string> = { dividend: "Dividende", agm: "Assemblée", results: "Résultats", market: "Place" };
 
@@ -24,6 +25,8 @@ export function NewsPage() {
   const upcoming = events.filter((e) => e.date >= Date.now() - 86_400_000 && (kind === "all" || e.kind === kind));
 
   return (
+    <div className="grid">
+      <NewsPanel title="Actualité BRVM et presse financière" limit={40} />
     <div className="two-col">
       <div className="card">
         <div className="card-head">
@@ -68,6 +71,7 @@ export function NewsPage() {
           ))}
         </ul>
       </div>
+    </div>
     </div>
   );
 }

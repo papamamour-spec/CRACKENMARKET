@@ -205,6 +205,45 @@ function migrate(d: DB): void {
   addColumn(d, "orders", "triggered_at", "INTEGER");
   addColumn(d, "users", "sgi_code", "TEXT"); // pour le rôle « sgi » : établissement rattaché
   d.exec(`
+    CREATE TABLE IF NOT EXISTS news_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      title TEXT NOT NULL,
+      url TEXT NOT NULL UNIQUE,
+      summary TEXT,
+      published_at INTEGER NOT NULL,
+      symbols TEXT NOT NULL DEFAULT '[]',
+      sentiment REAL NOT NULL DEFAULT 0,
+      market_wide INTEGER NOT NULL DEFAULT 0,
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_news_published ON news_items(published_at);
+
+    CREATE TABLE IF NOT EXISTS advisory_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      requester_type TEXT NOT NULL,     -- client | sgi
+      sgi_code TEXT,
+      client_label TEXT,                -- pour une SGI : client ou portefeuille concerné
+      capital REAL NOT NULL,
+      objective TEXT NOT NULL,
+      horizon_months INTEGER NOT NULL,
+      risk_tolerance INTEGER NOT NULL,
+      preferred_sectors TEXT NOT NULL DEFAULT '[]',
+      constraints TEXT,
+      holdings TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,             -- generated | validated | declined
+      report TEXT NOT NULL,             -- JSON
+      analyst_id INTEGER,
+      analyst_note TEXT,
+      reviewed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_advisory_user ON advisory_requests(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_advisory_status ON advisory_requests(status, created_at);
+  `);
+  d.exec(`
     CREATE TABLE IF NOT EXISTS sgi_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

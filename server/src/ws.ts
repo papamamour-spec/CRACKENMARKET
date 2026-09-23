@@ -5,6 +5,7 @@ import type { QuoteSnapshot } from "./services/market.js";
 import type { OrderBook } from "./services/orderbook.js";
 import type { Signal } from "./services/signals.js";
 import type { SgiAccount, SgiOrder } from "./services/sgi.js";
+import type { AdvisoryView } from "./services/advisory.js";
 
 interface ClientState {
   userId: number | null;
@@ -91,6 +92,9 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
   });
   s.sgi.on("account_update", (account: SgiAccount) => {
     for (const [ws, st] of clients) if (st.userId === account.user_id) send(ws, { type: "sgi_account", account });
+  });
+  s.advisory.on("reviewed", (v: AdvisoryView) => {
+    for (const [ws, st] of clients) if (st.userId === v.user_id) send(ws, { type: "advisory", request: { id: v.id, status: v.status, client_label: v.client_label, analyst_note: v.analyst_note } });
   });
   s.market.on("status", (status) => {
     for (const ws of clients.keys()) send(ws, { type: "status", status });

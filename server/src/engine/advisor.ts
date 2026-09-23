@@ -47,10 +47,18 @@ export interface PortfolioDiagnostic {
   rebalancing: { symbol: string; action: "renforcer" | "alléger" | "vendre" | "initier"; reason: string; weightPct: number }[];
 }
 
+export interface NewsContext {
+  score: number; // -1..1
+  count: number;
+  headlines: { title: string; sentiment: number; source: string }[];
+}
+
 interface Context {
   profile: BehaviorProfile;
   positions: PositionRecord[];
   cash: number;
+  /** Sentiment de l'actualité récente par valeur (veille presse / BRVM) */
+  news?: Map<string, NewsContext>;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -99,12 +107,24 @@ export function recommend(tech: TechnicalSnapshot, ctx: Context): Recommendation
     warnings.push(`Ligne déjà lourde (${(lineWeight * 100).toFixed(0)} % du portefeuille)`);
   }
 
+  // Actualité : tempère le score technique (jusqu'à ±12 points) et alimente l'explication
+  const news = ctx.news?.get(tech.symbol);
+  let newsPenalty = 0;
+  if (news && news.count > 0 && Math.abs(news.score) >= 0.15) {
+    raw = clamp(raw + news.score * 0.12, -1, 1);
+    const head = news.headlines[0];
+    if (news.score > 0) rationale.push(`Actualité récente favorable (${news.count} article${news.count > 1 ? "s" : ""}) : « ${head?.title ?? ""} »`);
+    else {
+      warnings.push(`Actualité récente défavorable (${news.count} article${news.count > 1 ? "s" : ""}) : « ${head?.title ?? ""} »`);
+      newsPenalty = Math.min(0.2, Math.abs(news.score) * 0.25);
+    }
+  }
   const score = r0(clamp(raw, -1, 1) * 100);
 
   // Confiance : accord entre les composantes + profondeur d'historique
   const comps = [s.trend, s.momentum, s.volume];
   const agreement = comps.filter((c) => Math.sign(c) === Math.sign(raw) && Math.abs(c) > 0.1).length / comps.length;
-  const confidence = clamp(0.35 + agreement * 0.45 + (tech.volatility60 < 0.3 ? 0.1 : 0) + Math.abs(raw) * 0.2, 0.2, 0.95);
+  const confidence = clamp(0.35 + agreement * 0.45 + (tech.volatility60 < 0.3 ? 0.1 : 0) + Math.abs(raw) * 0.2 - newsPenalty, 0.2, 0.95);
 
   // Action
   let action: Action;
