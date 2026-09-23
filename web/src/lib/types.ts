@@ -328,3 +328,74 @@ export interface Referrals {
   ledger: { points: number; reason: string; ts: number }[];
   rewards: Record<string, number>;
 }
+
+export interface SgiPartner {
+  code: string;
+  name: string;
+  shortName: string;
+  country: string;
+  city: string;
+  website: string;
+  email: string;
+  phone: string;
+  channel: "console" | "webhook";
+  channelLabel: string;
+  brokerageFeePct: number;
+  minFee: number;
+  marketFeePct: number;
+  feesConfirmed: boolean;
+  requiredDocuments: string[];
+  onboardingDelay: string;
+  featured: boolean;
+}
+export type SgiAccountStatus = "pending" | "verified" | "rejected";
+export interface SgiAccount {
+  id: number;
+  user_id: number;
+  sgi_code: string;
+  status: SgiAccountStatus;
+  account_number: string | null;
+  holder_name: string;
+  id_type: string;
+  id_number: string;
+  phone: string;
+  address: string;
+  country: string;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
+  client_email?: string;
+}
+export type SgiOrderStatus = "pending" | "transmitted" | "acknowledged" | "executed" | "partial" | "rejected" | "cancelled";
+export interface SgiOrder {
+  id: number;
+  user_id: number;
+  sgi_code: string;
+  account_number: string | null;
+  symbol: string;
+  side: "buy" | "sell";
+  type: "market" | "limit";
+  quantity: number;
+  limit_price: number | null;
+  validity: "day" | "week" | "gtc";
+  status: SgiOrderStatus;
+  executed_qty: number;
+  executed_price: number | null;
+  sgi_reference: string | null;
+  estimated_amount: number;
+  estimated_fees: number;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
+  client_name?: string;
+  client_email?: string;
+}
+export const SGI_STATUS_LABEL: Record<SgiOrderStatus, string> = {
+  pending: "En attente de transmission",
+  transmitted: "Transmis à la SGI",
+  acknowledged: "Pris en charge par la SGI",
+  executed: "Exécuté",
+  partial: "Partiellement exécuté",
+  rejected: "Rejeté",
+  cancelled: "Annulé",
+};

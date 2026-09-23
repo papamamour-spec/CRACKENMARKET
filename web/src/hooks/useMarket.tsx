@@ -77,6 +77,18 @@ export function MarketProvider({ children }: { children: ReactNode }) {
               return next;
             });
             break;
+          case "sgi_order": {
+            const o = msg.order;
+            const label: Record<string, string> = { transmitted: "transmis à la SGI", acknowledged: "pris en charge par la SGI", executed: "exécuté par la SGI", partial: "partiellement exécuté", rejected: "rejeté par la SGI", cancelled: "annulé" };
+            setNotifications((n) => [{ id: notifId++, kind: "order" as const, message: `Ordre réel ${o.side === "buy" ? "achat" : "vente"} ${o.quantity} ${o.symbol} : ${label[o.status] ?? o.status}${o.executed_price ? ` à ${o.executed_price}` : ""}`, ts: Date.now() }, ...n].slice(0, 20));
+            break;
+          }
+          case "sgi_account": {
+            const a = msg.account;
+            const label: Record<string, string> = { pending: "demande reçue", verified: `validé (n° ${a.account_number})`, rejected: "refusé" };
+            setNotifications((n) => [{ id: notifId++, kind: "info" as const, message: `Compte-titres ${a.sgi_code} : ${label[a.status] ?? a.status}`, ts: Date.now() }, ...n].slice(0, 20));
+            break;
+          }
           case "signal":
             setSignals((prev) => [msg.signal as Signal, ...prev].slice(0, 50));
             break;

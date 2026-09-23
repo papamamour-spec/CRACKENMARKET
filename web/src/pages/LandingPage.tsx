@@ -14,6 +14,7 @@ const FEATURES = [
   ["Classement des investisseurs", "Comparez-vous, suivez les meilleurs, voyez leurs opérations. Le concours du mois récompense les plus disciplinés."],
   ["Calendrier des dividendes", "Détachements, assemblées, publications : ne ratez plus aucun rendez-vous des 46 sociétés cotées."],
   ["Analyse de performance", "Courbe de capital face au BRVM Composite, ratio de Sharpe, drawdown, taux de réussite, export Excel."],
+  ["Ordres réels via votre SGI", "Ouvrez votre compte-titres chez Matha Capital depuis la plateforme et transmettez vos ordres réels en un clic, avec suivi d'exécution en temps réel."],
   ["Sécurité de niveau bancaire", "Double authentification, clés API pour les SGI et institutionnels, application installable sur mobile."],
 ];
 

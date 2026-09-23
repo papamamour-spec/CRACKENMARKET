@@ -18,6 +18,8 @@ import { NewsPage } from "./pages/NewsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { AccountPage } from "./pages/AccountPage";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
+import { SgiPage } from "./pages/SgiPage";
+import { SgiConsolePage } from "./pages/SgiConsolePage";
 
 function Protected() {
   const { user, loading } = useAuth();
@@ -64,6 +66,8 @@ export function App() {
             <Route path="/actualites" element={<NewsPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/compte" element={<AccountPage />} />
+            <Route path="/sgi" element={<SgiPage />} />
+            <Route path="/sgi/console" element={<SgiConsolePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
