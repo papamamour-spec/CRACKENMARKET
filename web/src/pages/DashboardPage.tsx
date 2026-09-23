@@ -9,6 +9,7 @@ import type { AdvisoryView, BehaviorProfile, Diagnostic, PortfolioSummary, Recom
 import { ADVISORY_STATUS_LABEL } from "../lib/types";
 import { ScoreBar } from "../components/ScoreBar";
 import { useAuth } from "../hooks/useAuth";
+import { SkeletonCard } from "../components/Skeleton";
 
 export function DashboardPage() {
   const { quotes, indices, status } = useMarket();
@@ -84,12 +85,14 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {recs.length > 0 && (
-        <div>
-          <div className="card-head"><h2>Opportunités adaptées à votre profil</h2><Link to="/conseiller">Voir le détail et le diagnostic →</Link></div>
+      <div>
+        <div className="card-head"><h2>Opportunités adaptées à votre profil</h2><Link to="/conseiller">Voir le détail et le diagnostic →</Link></div>
+        {profile ? (
           <div className="grid grid-3">{recs.map((r) => <RecommendationCard key={r.symbol} rec={r} />)}</div>
-        </div>
-      )}
+        ) : (
+          <div className="grid grid-3"><SkeletonCard lines={5} /><SkeletonCard lines={5} /><SkeletonCard lines={5} /></div>
+        )}
+      </div>
 
       <details className="card">
         <summary style={{ cursor: "pointer", fontWeight: 600 }}>Marché du jour · BRVM Composite {indices[0] ? <span className={signClass(indices[0].changePct)}>{fmtNum(indices[0].value, 2)} ({fmtPct(indices[0].changePct)})</span> : null} · {compact(totalValue)} FCFA échangés · {upCount} ▲ / {downCount} ▼</summary>

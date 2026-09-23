@@ -51,3 +51,36 @@ describe("profondeur d'historique", () => {
     expect(rows[rows.length - 1].close).toBe(INSTRUMENT_MAP.get("SNTS")!.refPrice);
   });
 });
+
+import { MarketService } from "../src/services/market.js";
+
+describe("variations par période", () => {
+  it("calcule 1D vs veille, 1W/1M vs clôtures passées, YTD et 52 semaines", async () => {
+    // Simulation forcée (la configuration est lue au chargement du module : la variable
+    // d'environnement seule ne suffit pas et le mode « auto » tenterait de joindre brvm.org) ;
+    // 300 séances suffisent (1 an + YTD) et évitent de générer 5 ans d'historique sur le runner CI
+    const previous = { depth: config.historyDays, mode: config.providerMode };
+    config.historyDays = 300;
+    config.providerMode = "simulation";
+    const db = openMemoryDb();
+    const market = new MarketService(db);
+    await market.start();
+    try {
+      const s = market.snapshot("SNTS")!;
+      expect(s.perf["1D"]).toBeCloseTo(((s.price - s.prevClose) / s.prevClose) * 100, 1);
+      const hist = market.history("SNTS", 2000);
+      const today = new Date().setUTCHours(0, 0, 0, 0);
+      const closes = hist.filter((c) => c.ts < today);
+      expect(s.perf["1W"]).toBeCloseTo((s.price / closes[closes.length - 5].close - 1) * 100, 1);
+      expect(s.perf["1Y"]).not.toBeNull();
+      expect(s.perf["3Y"]).toBeNull(); // historique insuffisant : pas de valeur inventée
+      expect(s.perf.YTD).not.toBeNull();
+      expect(s.high52).toBeGreaterThanOrEqual(s.price);
+      expect(s.low52).toBeLessThanOrEqual(s.price);
+    } finally {
+      market.stop();
+      config.historyDays = previous.depth;
+      config.providerMode = previous.mode;
+    }
+  }, 20000);
+});

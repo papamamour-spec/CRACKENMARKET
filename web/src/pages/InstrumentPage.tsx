@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { OrderTicket } from "../components/OrderTicket";
 import { OrderBookPanel } from "../components/OrderBookPanel";
@@ -6,6 +6,8 @@ import { NewsPanel } from "../components/NewsPanel";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
+import { PeriodChips, Range52 } from "../components/PeriodChips";
+import { SkeletonCard } from "../components/Skeleton";
 import { useQuote } from "../hooks/useMarket";
 import { api, del, post } from "../lib/api";
 import { compact, fmtNum, fmtPct, fmtTime, signClass } from "../lib/format";
@@ -19,22 +21,33 @@ export function InstrumentPage() {
   const [ticks, setTicks] = useState<{ ts: number; price: number; volume: number }[]>([]);
   const [inWatch, setInWatch] = useState(false);
 
+  const lastAnalysed = useRef(0);
+  const load = () => {
+    lastAnalysed.current = Date.now();
+    api<Technical>(`/market/technical/${symbol}`).then(setTech).catch(() => {});
+    api<Recommendation>(`/advisor/recommendations/${symbol}`).then(setRec).catch(() => {});
+  };
   useEffect(() => {
-    const load = () => {
-      api<Technical>(`/market/technical/${symbol}`).then(setTech).catch(() => {});
-      api<Recommendation>(`/advisor/recommendations/${symbol}`).then(setRec).catch(() => {});
-    };
+    setTech(null);
+    setRec(null);
     load();
     api<{ symbol: string }[]>("/watchlist").then((w) => setInWatch(w.some((x) => x.symbol === symbol))).catch(() => {});
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 60000);
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
+  // Analyse dynamique : recalcul après chaque cotation (au plus toutes les 5 s)
+  useEffect(() => {
+    if (!quote || Date.now() - lastAnalysed.current < 5000) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote?.price]);
 
   useEffect(() => {
     api<typeof ticks>(`/market/ticks/${symbol}?limit=30`).then(setTicks).catch(() => {});
   }, [symbol, quote?.ts]);
 
-  if (!quote) return <div className="card">Chargement de {symbol}…</div>;
+  if (!quote) return <SkeletonCard title={`Chargement de ${symbol}…`} lines={4} />;
 
   const toggleWatch = async () => {
     if (inWatch) await del(`/watchlist/${symbol}`);
@@ -56,13 +69,22 @@ export function InstrumentPage() {
         <span className="spacer" />
         <button className="btn sm" onClick={toggleWatch}>{inWatch ? "★ Suivi" : "☆ Suivre"}</button>
       </div>
+      <div className="card">
+        <div className="card-head">
+          <h3>Variations par période</h3>
+          <span className="live-badge"><span className="dot on" /> recalculées à chaque cotation · analyse mise à jour {tech?.updatedAt ? fmtTime(tech.updatedAt) : "…"}</span>
+        </div>
+        <PeriodChips quote={quote} />
+        <div style={{ marginTop: 10 }}><Range52 quote={quote} /></div>
+      </div>
 
       <div className="two-col">
         <div className="grid">
           <div className="card"><PriceChart symbol={symbol} quote={quote} /></div>
+          {!tech && <SkeletonCard title="Analyse technique" lines={5} />}
           {tech && (
             <div className="card">
-              <h2>Analyse technique</h2>
+              <div className="card-head"><h2>Analyse technique</h2><span className="live-badge"><span className="dot on" /> dynamique · {fmtTime(tech.updatedAt ?? Date.now())}</span></div>
               <div className="grid grid-3">
                 {(["trend", "momentum", "meanReversion", "volume", "risk", "composite"] as const).map((k) => (
                   <div key={k} className="gauge">

@@ -25,7 +25,16 @@ export interface QuoteSnapshot {
   ts: number;
   source: "live" | "simulation";
   brvm30: boolean;
+  /** Variations (%) par période, calculées sur les clôtures ; null si historique insuffisant */
+  perf: PeriodPerf;
+  high52: number;
+  low52: number;
 }
+
+export type Period = "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y";
+export type PeriodPerf = Record<Period, number | null>;
+export const PERIODS: Period[] = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"];
+const PERIOD_SESSIONS: Record<Exclude<Period, "1D" | "YTD">, number> = { "1W": 5, "1M": 21, "3M": 63, "6M": 126, "1Y": 250, "3Y": 750, "5Y": 1250 };
 
 export interface IndexSnapshot {
   name: string;
@@ -95,6 +104,7 @@ export class MarketService extends EventEmitter {
   private books = new Map<string, OrderBook>();
   private bookRand = mulberry32Seed(Date.now() & 0xffffffff);
   private started = false;
+  private statusTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly db: DB) {
     super();
@@ -115,7 +125,14 @@ export class MarketService extends EventEmitter {
     this.loadIndexBase();
     await this.provider.start((qs) => this.ingest(qs));
     this.emitIndices();
-    setInterval(() => this.emit("status", this.status()), 30_000);
+    this.statusTimer = setInterval(() => this.emit("status", this.status()), 30_000);
+  }
+
+  /** Arrête le flux et les minuteries (tests, arrêt propre). */
+  stop(): void {
+    this.provider?.stop();
+    if (this.statusTimer) clearInterval(this.statusTimer);
+    this.statusTimer = null;
   }
 
   private async pickProvider(): Promise<MarketDataProvider> {
@@ -174,7 +191,38 @@ export class MarketService extends EventEmitter {
       ts: lastCandle?.ts ?? Date.now(),
       source: "simulation",
       brvm30: inst.brvm30,
+      perf: emptyPerf(),
+      high52: price,
+      low52: price,
     });
+    this.refreshPerf(inst.symbol);
+  }
+
+  /**
+   * Variations par période : 1D par rapport à la clôture de la veille, les autres par rapport à
+   * la clôture N séances avant la séance en cours (la bougie du jour est exclue de la référence),
+   * YTD par rapport à la dernière clôture de l'année précédente. Plus haut / plus bas 52 semaines.
+   */
+  private refreshPerf(symbol: string): void {
+    const s = this.snapshots.get(symbol);
+    if (!s) return;
+    const arr = this.candles.get(symbol) ?? [];
+    const today = startOfDayUtc(Date.now());
+    const hist = arr.length && arr[arr.length - 1].ts >= today ? arr.slice(0, -1) : arr; // clôtures des séances précédentes
+    const price = s.price;
+    const pct = (ref: number | undefined) => (ref && ref > 0 ? round2((price / ref - 1) * 100) : null);
+    const perf = emptyPerf();
+    perf["1D"] = pct(s.prevClose);
+    for (const [p, n] of Object.entries(PERIOD_SESSIONS) as [Exclude<Period, "1D" | "YTD">, number][]) {
+      perf[p] = hist.length >= n ? pct(hist[hist.length - n].close) : null;
+    }
+    const year = new Date(today).getUTCFullYear();
+    const lastPrevYear = [...hist].reverse().find((c) => new Date(c.ts).getUTCFullYear() < year);
+    perf.YTD = pct(lastPrevYear?.close);
+    const window = arr.slice(-250);
+    s.perf = perf;
+    s.high52 = window.length ? Math.max(price, ...window.map((c) => c.high)) : price;
+    s.low52 = window.length ? Math.min(price, ...window.map((c) => c.low)) : price;
   }
 
   private loadIndexBase(): void {
@@ -227,7 +275,8 @@ export class MarketService extends EventEmitter {
         this.updateIntraday(q, tradedQty);
         this.updateDailyCandle(q, tradedQty);
         insertTick.run(q.symbol, q.ts, q.price, tradedQty, q.source);
-        updated.push({ ...s });
+        this.refreshPerf(q.symbol);
+        updated.push({ ...s, perf: { ...s.perf } });
       }
     });
     tx();
@@ -463,6 +512,10 @@ function nextSessionBoundary(from: Date, kind: "open" | "close"): number {
   const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), t.hour, t.minute));
   while (d.getTime() <= from.getTime() || !isTradingDay(d)) d.setUTCDate(d.getUTCDate() + 1);
   return d.getTime();
+}
+
+export function emptyPerf(): PeriodPerf {
+  return { "1D": null, "1W": null, "1M": null, "3M": null, "6M": null, YTD: null, "1Y": null, "3Y": null, "5Y": null };
 }
 
 export function round2(n: number): number {
