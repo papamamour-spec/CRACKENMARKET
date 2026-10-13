@@ -97,3 +97,50 @@ recommandations sont recalculées à la demande sur les données à jour (cache 
   ajoute une justification ou un avertissement, et une actualité défavorable réduit la
   confiance. Dans les rapports, un sentiment de place ≤ -0,2 relève la réserve de liquidités de
   5 points et recommande un déploiement progressif.
+
+## 8. Prévision des fluctuations (`server/src/engine/forecast.ts`)
+
+Pour chaque valeur et trois horizons (5, 21 et 63 séances), le moteur produit une **distribution** de rendement, pas un chiffre isolé.
+
+1. **Facteurs** calculés à chaque date sur les données disponibles à cette date : momentum 1 et 3 mois, écart à la moyenne 50 séances, volatilité 20 séances, RSI 14, ratio de volumes 5/60 séances, pente 20 séances, momentum du BRVM Composite, saisonnalité du mois (rendement moyen historique à 21 séances du mois en cours).
+2. **Régression ridge** (`engine/linalg.ts`, résolution par élimination de Gauss) entraînée en marche avant : 70 % des fenêtres les plus anciennes servent à l'apprentissage, 30 % au test. Sur le test, on mesure le **taux de bonne direction** (comparé à la référence « toujours en hausse »), l'**erreur absolue moyenne** et celle d'une prévision nulle. Le modèle est ensuite réajusté sur tout l'historique pour la prévision du jour.
+3. **Modèle autorégressif AR(5)** sur les rendements quotidiens, extrapolé sur l'horizon avec atténuation.
+4. **Ensemble** : les deux modèles sont pondérés par l'inverse de leur erreur de test ; chacun est **rétréci vers la dérive historique** s'il n'améliore pas nettement l'erreur naïve (ratio ≤ 0,95 → plein, 1,0 → moitié, ≥ 1,025 → quart). L'actualité récente (sentiment pondéré par la crédibilité des sources) décale l'espérance d'au plus une demi-volatilité d'horizon.
+5. **Monte-Carlo** : 1 000 trajectoires log-normales (dérive = espérance de l'ensemble, volatilité EWMA λ = 0,94) donnent la probabilité de hausse, les probabilités de mouvements > +5 % et < −5 %, les quantiles 5/25/50/75/95 % et les cours cibles correspondants.
+6. **Explications** : la contribution de chaque facteur (β × facteur standardisé, en points de rendement) est renvoyée et les trois plus fortes sont verbalisées, avec la part du modèle AR, l'effet de l'actualité et la précision mesurée.
+
+Le `ForecastService` met les prévisions en cache 15 minutes et les recalcule en tâche de fond ; `/api/market/forecasts` classe les valeurs par rendement attendu × confiance. **La précision affichée est celle du passé de la valeur ; elle ne garantit rien.**
+
+## 9. Optimisation de portefeuille (`server/src/engine/optimizer.ts`)
+
+Le guichet de conseil construit l'allocation par **moyenne-variance sous contraintes** :
+
+- **Rendement attendu** par valeur = dividende + espérance de cours, mélange de la prévision à 3 mois annualisée (pondérée par sa confiance) et de l'objectif de cours de l'analyse technique, borné à ±40 %.
+- **Covariance** annualisée des rendements quotidiens (300 séances), rétrécie de 30 % vers la diagonale pour la stabilité.
+- **Contraintes** : part investie fixée (1 − réserve de liquidités liée au profil et au sentiment de place), poids maximal par ligne, par secteur, nombre de lignes, secteurs ou valeurs exclus. Si les plafonds rendent l'objectif d'investissement impossible, ils sont relevés et le rapport le signale.
+- **Résolution** par gradient projeté : minimisation de la variance avec pénalité quand le rendement cible n'est pas atteint ; projection itérative sur les bornes et la contrainte de somme. Le nombre de lignes est respecté en conservant les plus pondérées puis en ré-optimisant sur ce sous-ensemble.
+- **Faisabilité** : le rendement maximal atteignable sous contraintes est calculé ; un objectif supérieur est signalé comme hors de portée et l'allocation vise ce maximum.
+- **Frontière efficiente** : six portefeuilles entre variance minimale et rendement maximal, affichés dans le rapport avec le portefeuille retenu.
+
+Le taux sans risque de référence (`RISK_FREE_RATE`, 6 % par défaut, indicatif des obligations d'État UEMOA) sert au ratio de Sharpe. Si moins de deux valeurs sont éligibles, l'allocation heuristique par score (section 3) prend le relais et le rapport l'indique.
+
+## 10. Collecte élargie d'actualité
+
+`NewsService` suit par défaut huit sources : BRVM (actualités, avis et communiqués), RichBourse, Sika Finance (flux RSS et page Marchés), Financial Afrik, Agence Ecofin, Abidjan.net Économie. Trois analyseurs : RSS/Atom, page BRVM, et un **analyseur générique de listes d'articles** (liens internes au titre de 20 à 220 caractères, date et résumé trouvés à proximité). Chaque source a une **crédibilité** (BRVM 100 %, sites boursiers 90 %, presse économique 80 %, généraliste 60 %) qui pondère son sentiment dans les agrégats. L'état de chaque source (dernier passage, articles lus et retenus, erreur) est exposé par `/api/market/news` et affiché dans la page Signaux & agenda. Sources supplémentaires : `NEWS_FEEDS` (RSS) ou `NEWS_SOURCES_JSON` (`[{ "name", "url", "kind": "rss|html-list", "weight" }]`).
+
+## 11. Apprentissage continu (`server/src/services/learning.ts`)
+
+Le modèle de prévision n'est pas figé : il s'améliore à mesure que ses prévisions sont confrontées au marché.
+
+1. **Journal** : chaque prévision émise (une par jour, valeur et horizon) est enregistrée dans `forecast_log` avec son cours de référence, son espérance, sa probabilité de hausse, son intervalle 90 %, la part de chaque modèle et l'ajustement d'actualité.
+2. **Résolution** : quand l'horizon est atteint (5, 21 ou 63 séances), le cours réellement constaté donne le rendement réalisé, la direction correcte ou non, l'erreur absolue, le respect de l'intervalle et le score de Brier de la probabilité.
+3. **Recalibrage en ligne** (`model_params`, par valeur et horizon, versionné) à chaque résolution :
+   - erreurs réalisées de la régression et du modèle AR (moyennes mobiles exponentielles) qui, dès dix prévisions résolues, entrent pour moitié dans la pondération de l'ensemble ;
+   - **biais** : EWMA des écarts réalisé − prévu, appliqué amorti de moitié (borné à ±5 points) ;
+   - **largeur des intervalles** : si l'intervalle 90 % est tenu moins de 86 % du temps, la volatilité simulée est élargie ; au-delà de 94 %, resserrée ;
+   - **poids de l'actualité** : renforcé uniquement lorsque l'ajustement a réduit l'erreur, affaibli sinon.
+4. **Régularisation** : la pénalité ridge est rechoisie parmi {1, 5, 20, 60} par validation en marche avant, au plus une fois par semaine et par valeur, dès vingt prévisions résolues.
+5. **Amorçage** : au premier démarrage, des prévisions sont rejouées « comme à l'époque » (historique tronqué, sans actualité) toutes les cinq séances sur les 120 dernières (`FORECAST_BACKFILL_SESSIONS`), puis résolues : la boucle dispose immédiatement de prévisions hors échantillon, étiquetées « amorçage » dans le journal.
+6. **Cycle** : résolution et recalibrage toutes les six heures (ou à la demande d'un analyste, `POST /api/market/forecasts/learn`). Le cache des prévisions est marqué périmé après chaque recalibrage.
+
+La précision **en conditions réelles** (direction, erreur, couverture, Brier, par horizon et par mois) est exposée par `GET /api/market/forecasts/learning` et affichée séparément de la précision de backtest, avec les références naïves (« toujours en hausse », prévision nulle). Le journal d'une valeur est consultable via `GET /api/market/forecasts/journal/:symbol`.

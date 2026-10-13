@@ -441,9 +441,73 @@ export interface AdvisoryReport {
   scenarios: { pessimistic: number; central: number; optimistic: number; horizonMonths: number };
   existing: { diagnostic: Diagnostic; actions: Diagnostic["rebalancing"] } | null;
   newsContext?: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
+  optimization?: OptimizationSummary;
+  forecasts?: LineForecast[];
   summary: string[];
   warnings: string[];
 }
+export interface OptimizationSummary {
+  method: "optimizer" | "heuristic";
+  targetYieldPct: number | null;
+  reachedTarget: boolean;
+  maxAchievablePct: number;
+  expectedAnnualReturnPct: number;
+  volatilityPct: number;
+  sharpe: number;
+  dividendYieldPct: number;
+  minVolatilityPct: number;
+  riskFreePct: number;
+  constraints: { maxWeightPct: number; maxSectorWeightPct: number; maxLines: number; investedMaxPct: number; excludedSectors: string[]; excludedSymbols: string[] };
+  frontier: { targetReturnPct: number; volatilityPct: number; expectedReturnPct: number }[];
+  notes: string[];
+}
+export interface LineForecast {
+  symbol: string;
+  expectedReturn3MPct: number;
+  probUp3M: number;
+  hitRate3M: number;
+  p5: number;
+  p95: number;
+  explanation: string | null;
+}
+export type Horizon = "1W" | "1M" | "3M";
+export const HORIZON_LABEL: Record<Horizon, string> = { "1W": "1 semaine", "1M": "1 mois", "3M": "3 mois" };
+export interface Contribution { factor: string; label: string; value: number; contributionPct: number }
+export interface HorizonForecast {
+  horizon: Horizon;
+  horizonDays: number;
+  expectedReturnPct: number;
+  probUp: number;
+  probAbove5: number;
+  probBelow5: number;
+  quantiles: { p5: number; p25: number; p50: number; p75: number; p95: number };
+  priceTargets: { p5: number; p50: number; p95: number };
+  accuracy: { hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; samples: number };
+  confidence: number;
+  models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
+  learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
+  contributions: Contribution[];
+  explanations: string[];
+}
+export interface Forecast { symbol: string; price: number; generatedAt: number; dailyVolPct: number; horizons: HorizonForecast[]; summary: string }
+export interface ForecastSummary {
+  symbol: string; name: string; sector: string; price: number; dailyVolPct: number; generatedAt: number;
+  horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number; liveHitRate: number | null; resolved: number }>;
+  summary: string; topExplanation: string | null;
+}
+export interface LearningStats { horizon: Horizon; pending: number; resolved: number; hitRate: number | null; maePct: number | null; coverage90: number | null; brier: number | null; naiveHitRate: number | null; naiveMaePct: number | null }
+export interface LearningSummary {
+  totalResolved: number;
+  totalPending: number;
+  lastCycleAt: number | null;
+  nextCycleAt: number | null;
+  backfill: { done: boolean; sessions: number } | null;
+  byHorizon: LearningStats[];
+  monthly: { month: string; horizon: Horizon; resolved: number; hitRate: number; maePct: number }[];
+  recentAdjustments: { symbol: string; horizon: Horizon; version: number; volScale: number; biasPct: number; newsFactor: number; lambda: number; resolved: number; updatedAt: number }[];
+}
+export interface ForecastLogRow { id: number; symbol: string; horizon: Horizon; made_at: number; made_day: string; price: number; expected_pct: number; prob_up: number; p5: number; p95: number; source: "live" | "backfill"; realized_pct: number | null; hit: number | null; abs_err: number | null; covered: number | null; resolved_at: number | null }
+export interface ForecastRanking { items: ForecastSummary[]; ready: number; total: number; horizon: Horizon }
 export type AdvisoryStatus = "generated" | "validated" | "declined";
 export interface AdvisoryView {
   id: number;
@@ -491,9 +555,10 @@ export interface NewsSentiment {
   count: number;
   headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[];
 }
+export interface SourceStatus { name: string; url: string; kind: string; weight: number; category: string; lastAt: number | null; ok: boolean | null; parsed: number; inserted: number; error: string | null }
 export interface NewsResponse {
   items: NewsView[];
   market: NewsSentiment;
   symbolSentiment: NewsSentiment | null;
-  status: { sources: string[]; items: number; lastRun: { at: number; ok: string[]; failed: string[] } | null };
+  status: { sources: string[]; items: number; lastRun: { at: number; ok: string[]; failed: string[] } | null; details?: SourceStatus[] };
 }

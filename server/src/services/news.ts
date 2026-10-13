@@ -14,6 +14,7 @@ export interface NewsItem {
   sentiment: number; // -1..1
   market_wide: number; // 1 si l'article concerne la place / l'économie régionale
   fetched_at: number;
+  weight: number; // crédibilité de la source (0..1)
 }
 
 export interface NewsView extends Omit<NewsItem, "symbols"> {
@@ -26,18 +27,45 @@ export interface NewsSentiment {
   headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[];
 }
 
+export type SourceKind = "rss" | "brvm-html" | "html-list";
+
 export interface NewsSource {
   name: string;
   url: string;
-  kind: "rss" | "brvm-html";
+  kind: SourceKind;
+  /** crédibilité 0..1 : pondère le sentiment dans les agrégats (source officielle = 1) */
+  weight: number;
+  category: "officiel" | "bourse" | "presse économique" | "généraliste";
 }
 
-/** Sources par défaut (modifiables via NEWS_FEEDS=url1,url2 pour les flux RSS). */
+/**
+ * Sources par défaut : la place (BRVM), les sites spécialisés BRVM (RichBourse, Sika Finance),
+ * la presse économique régionale et un généraliste à forte audience.
+ * Complétées par NEWS_FEEDS=url1,url2 (flux RSS) ou NEWS_SOURCES_JSON=[{name,url,kind,weight}].
+ */
 export const DEFAULT_SOURCES: NewsSource[] = [
-  { name: "BRVM", url: "https://www.brvm.org/fr/actualites", kind: "brvm-html" },
-  { name: "Financial Afrik", url: "https://www.financialafrik.com/feed/", kind: "rss" },
-  { name: "Sika Finance", url: "https://www.sikafinance.com/rss/actualites", kind: "rss" },
+  { name: "BRVM", url: "https://www.brvm.org/fr/actualites", kind: "brvm-html", weight: 1, category: "officiel" },
+  { name: "BRVM — Avis et communiqués", url: "https://www.brvm.org/fr/avis-et-communiques", kind: "brvm-html", weight: 1, category: "officiel" },
+  { name: "RichBourse", url: "https://www.richbourse.com/common/actualites", kind: "html-list", weight: 0.9, category: "bourse" },
+  { name: "Sika Finance", url: "https://www.sikafinance.com/rss/actualites", kind: "rss", weight: 0.9, category: "bourse" },
+  { name: "Sika Finance — Marchés", url: "https://www.sikafinance.com/marches/actualites_bourse_brvm", kind: "html-list", weight: 0.9, category: "bourse" },
+  { name: "Financial Afrik", url: "https://www.financialafrik.com/feed/", kind: "rss", weight: 0.8, category: "presse économique" },
+  { name: "Agence Ecofin", url: "https://www.agenceecofin.com/finance", kind: "html-list", weight: 0.8, category: "presse économique" },
+  { name: "Abidjan.net — Économie", url: "https://news.abidjan.net/economie", kind: "html-list", weight: 0.6, category: "généraliste" },
 ];
+
+export interface SourceStatus {
+  name: string;
+  url: string;
+  kind: SourceKind;
+  weight: number;
+  category: NewsSource["category"];
+  lastAt: number | null;
+  ok: boolean | null;
+  parsed: number;
+  inserted: number;
+  error: string | null;
+}
 
 const MARKET_TERMS = ["brvm", "bourse regionale", "bourse régionale", "uemoa", "umoa", "bceao", "amf-umoa", "marché financier régional", "marche financier regional", "indice composite"];
 
@@ -100,6 +128,38 @@ export function parseRss(xml: string): ParsedItem[] {
   return out;
 }
 
+/**
+ * Analyse générique d'une page de liste d'articles : liens internes dont le texte ressemble à un
+ * titre (20 à 220 caractères, au moins trois mots), dédoublonnés, avec la date trouvée à proximité.
+ * Le filtrage thématique (valeur ou place) est ensuite fait à l'ingestion.
+ */
+export function parseHtmlList(html: string, pageUrl: string): ParsedItem[] {
+  const $ = cheerio.load(html);
+  const base = new URL(pageUrl);
+  const out: ParsedItem[] = [];
+  const seen = new Set<string>();
+  $("a[href]").each((_, a) => {
+    const el = $(a);
+    const href = el.attr("href") ?? "";
+    const title = el.text().replace(/\s+/g, " ").trim();
+    if (title.length < 20 || title.length > 220 || title.split(" ").length < 3) return;
+    let url: URL;
+    try { url = new URL(href, base); } catch { return; }
+    if (url.hostname.replace(/^www\./, "") !== base.hostname.replace(/^www\./, "")) return;
+    if (url.pathname.length < 8 || /\.(jpg|png|pdf|gif)$/i.test(url.pathname)) return;
+    const key = url.origin + url.pathname;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const container = el.closest("article, li, .item, .post, .card, .views-row, div");
+    const timeEl = container.find("time").first();
+    const dateText = timeEl.attr("datetime") ?? timeEl.text().trim() ?? container.find(".date, .published, .meta").first().text().trim();
+    const ts = dateText ? Date.parse(dateText) : NaN;
+    const summary = container.find("p").first().text().replace(/\s+/g, " ").trim();
+    out.push({ title, url: key, summary: summary && summary !== title ? summary.slice(0, 400) : null, publishedAt: Number.isFinite(ts) ? ts : Date.now() });
+  });
+  return out;
+}
+
 /** Analyse de la page « Actualités » du site de la BRVM (liens d'articles). */
 export function parseBrvmHtml(html: string, base = "https://www.brvm.org"): ParsedItem[] {
   const $ = cheerio.load(html);
@@ -125,6 +185,7 @@ export function parseBrvmHtml(html: string, base = "https://www.brvm.org"): Pars
 export class NewsService extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private lastRun: { at: number; ok: string[]; failed: string[] } | null = null;
+  private sourceStatus = new Map<string, SourceStatus>();
 
   constructor(
     private readonly db: DB,
@@ -133,7 +194,16 @@ export class NewsService extends EventEmitter {
   ) {
     super();
     const extra = process.env.NEWS_FEEDS?.split(",").map((u) => u.trim()).filter(Boolean) ?? [];
-    for (const url of extra) this.sources.push({ name: new URL(url).hostname, url, kind: "rss" });
+    for (const url of extra) this.sources.push({ name: new URL(url).hostname, url, kind: "rss", weight: 0.7, category: "presse économique" });
+    if (process.env.NEWS_SOURCES_JSON) {
+      try {
+        const parsed = JSON.parse(process.env.NEWS_SOURCES_JSON) as Partial<NewsSource>[];
+        for (const p of parsed) if (p.url && p.name) this.sources.push({ name: p.name, url: p.url, kind: p.kind ?? "html-list", weight: p.weight ?? 0.7, category: p.category ?? "presse économique" });
+      } catch (e) {
+        console.warn(`[news] NEWS_SOURCES_JSON invalide : ${(e as Error).message}`);
+      }
+    }
+    for (const src of this.sources) this.sourceStatus.set(src.name, { name: src.name, url: src.url, kind: src.kind, weight: src.weight, category: src.category, lastAt: null, ok: null, parsed: 0, inserted: 0, error: null });
   }
 
   start(intervalMs = 30 * 60_000): void {
@@ -147,7 +217,13 @@ export class NewsService extends EventEmitter {
 
   status() {
     const count = (this.db.prepare("SELECT COUNT(*) AS n FROM news_items").get() as { n: number }).n;
-    return { sources: this.sources.map((s) => s.name), items: count, lastRun: this.lastRun };
+    return { sources: this.sources.map((s) => s.name), items: count, lastRun: this.lastRun, details: [...this.sourceStatus.values()] };
+  }
+
+  private parse(src: NewsSource, body: string): ParsedItem[] {
+    if (src.kind === "rss") return parseRss(body);
+    if (src.kind === "brvm-html") return parseBrvmHtml(body);
+    return parseHtmlList(body, src.url);
   }
 
   async refresh(): Promise<number> {
@@ -162,11 +238,14 @@ export class NewsService extends EventEmitter {
         clearTimeout(t);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.text();
-        const items = src.kind === "rss" ? parseRss(body) : parseBrvmHtml(body);
-        inserted += this.ingest(src.name, items);
+        const items = this.parse(src, body);
+        const n = this.ingest(src.name, items, src.weight);
+        inserted += n;
         ok.push(src.name);
+        this.sourceStatus.set(src.name, { ...this.sourceStatus.get(src.name)!, lastAt: Date.now(), ok: true, parsed: items.length, inserted: n, error: null });
       } catch (e) {
         failed.push(`${src.name} (${(e as Error).message})`);
+        this.sourceStatus.set(src.name, { ...this.sourceStatus.get(src.name)!, lastAt: Date.now(), ok: false, parsed: 0, inserted: 0, error: (e as Error).message });
       }
     }
     this.lastRun = { at: Date.now(), ok, failed };
@@ -176,8 +255,8 @@ export class NewsService extends EventEmitter {
   }
 
   /** Insère les articles nouveaux (dédoublonnés par URL) ; ne garde que ceux liés à la BRVM ou à une valeur. */
-  ingest(source: string, items: ParsedItem[]): number {
-    const insert = this.db.prepare("INSERT OR IGNORE INTO news_items(source, title, url, summary, published_at, symbols, sentiment, market_wide, fetched_at) VALUES (?,?,?,?,?,?,?,?,?)");
+  ingest(source: string, items: ParsedItem[], weight = 1): number {
+    const insert = this.db.prepare("INSERT OR IGNORE INTO news_items(source, title, url, summary, published_at, symbols, sentiment, market_wide, fetched_at, weight) VALUES (?,?,?,?,?,?,?,?,?,?)");
     let n = 0;
     const tx = this.db.transaction(() => {
       for (const it of items) {
@@ -185,7 +264,7 @@ export class NewsService extends EventEmitter {
         const symbols = matchSymbols(text);
         const market = isMarketWide(text);
         if (!symbols.length && !market) continue;
-        const info = insert.run(source, it.title, it.url, it.summary, it.publishedAt, JSON.stringify(symbols), scoreSentiment(text), market ? 1 : 0, Date.now());
+        const info = insert.run(source, it.title, it.url, it.summary, it.publishedAt, JSON.stringify(symbols), scoreSentiment(text), market ? 1 : 0, Date.now(), weight);
         n += info.changes;
       }
     });
@@ -240,7 +319,7 @@ export class NewsService extends EventEmitter {
     let den = 0;
     for (const r of rows) {
       const age = (now - r.published_at) / 86_400_000;
-      const w = Math.max(0.1, 1 - age / days);
+      const w = Math.max(0.1, 1 - age / days) * (r.weight ?? 1);
       num += r.sentiment * w;
       den += w;
     }

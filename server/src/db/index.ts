@@ -296,6 +296,40 @@ function migrate(d: DB): void {
     );
   `);
   d.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code)");
+  addColumn(d, "news_items", "weight", "REAL NOT NULL DEFAULT 1");
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS forecast_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      horizon TEXT NOT NULL,             -- 1W | 1M | 3M
+      made_at INTEGER NOT NULL,          -- date de la bougie de référence
+      made_day TEXT NOT NULL,            -- AAAA-MM-JJ (une prévision par jour, valeur et horizon)
+      price REAL NOT NULL,
+      expected_pct REAL NOT NULL,
+      prob_up REAL NOT NULL,
+      p5 REAL NOT NULL,
+      p95 REAL NOT NULL,
+      ridge_pct REAL NOT NULL,
+      ar_pct REAL NOT NULL,
+      news_adj_pct REAL NOT NULL,
+      params_version INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'live',  -- live | backfill
+      realized_pct REAL,
+      hit INTEGER,
+      abs_err REAL,
+      covered INTEGER,
+      resolved_at INTEGER,
+      UNIQUE (symbol, horizon, made_day)
+    );
+    CREATE INDEX IF NOT EXISTS idx_forecast_log_open ON forecast_log(resolved_at, made_at);
+    CREATE TABLE IF NOT EXISTS model_params (
+      symbol TEXT NOT NULL,
+      horizon TEXT NOT NULL,
+      params TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (symbol, horizon)
+    );
+  `);
 }
 
 function addColumn(d: DB, table: string, column: string, definition: string): void {

@@ -58,6 +58,28 @@ export function NewsPanel({ symbol, limit = 30, title = "Actualité" }: { symbol
         {analyst && <button className="btn sm" onClick={refresh}>Collecter maintenant</button>}
       </div>
       {data.items.length === 0 && <p className="muted" style={{ fontSize: 13 }}>Sources suivies : {data.status.sources.join(", ")}.{data.status.lastRun?.failed.length ? ` Injoignables depuis ce serveur : ${data.status.lastRun.failed.join(", ")}.` : ""}</p>}
+      {!symbol && data.status.details && data.status.details.length > 0 && (
+        <details style={{ marginBottom: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 13 }}>Sources collectées ({data.status.details.filter((d) => d.ok).length} / {data.status.details.length} joignables) · {data.status.items} articles en base</summary>
+          <table style={{ marginTop: 6 }}>
+            <thead><tr><th className="left">Source</th><th className="left">Type</th><th>Crédibilité</th><th>Dernier passage</th><th>Lus</th><th>Retenus</th><th className="left">État</th></tr></thead>
+            <tbody>
+              {data.status.details.map((d) => (
+                <tr key={d.name}>
+                  <td className="left"><a href={d.url} target="_blank" rel="noreferrer">{d.name}</a></td>
+                  <td className="left muted">{d.category} · {d.kind}</td>
+                  <td className="mono">{Math.round(d.weight * 100)} %</td>
+                  <td className="mono muted">{d.lastAt ? fmtDateTime(d.lastAt) : "—"}</td>
+                  <td className="mono">{d.parsed}</td>
+                  <td className="mono">{d.inserted}</td>
+                  <td className={`left ${d.ok === false ? "down" : d.ok ? "up" : "muted"}`} style={{ fontSize: 12 }}>{d.ok === null ? "en attente" : d.ok ? "OK" : `injoignable (${d.error})`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted" style={{ fontSize: 11 }}>Le sentiment de chaque article est pondéré par la crédibilité de sa source (BRVM = 100 %). Ajoutez des sources via NEWS_FEEDS ou NEWS_SOURCES_JSON.</p>
+        </details>
+      )}
       {data.items.map((n) => {
         const l = sentimentLabel(n.sentiment);
         return (

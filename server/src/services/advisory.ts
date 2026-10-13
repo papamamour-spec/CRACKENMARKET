@@ -7,6 +7,12 @@ import { diagnosePortfolio, proposeAllocation, recommend, type PortfolioDiagnost
 import type { AdvisorService } from "./advisor.js";
 import type { MarketService } from "./market.js";
 import type { NewsService } from "./news.js";
+import type { ForecastService } from "./forecast.js";
+import { optimize, type OptimizationResult } from "../engine/optimizer.js";
+import type { Forecast } from "../engine/forecast.js";
+
+/** Taux sans risque annuel de référence (obligations d'État UEMOA, indicatif) : RISK_FREE_RATE=0.06 */
+export const RISK_FREE_RATE = Number(process.env.RISK_FREE_RATE ?? 0.06);
 
 export type RequesterType = "client" | "sgi";
 export type AdvisoryStatus = "generated" | "validated" | "declined";
@@ -27,6 +33,40 @@ export interface AdvisoryInput {
   holdings?: Holding[];
   /** Pour une SGI : identifiant du client ou du portefeuille concerné */
   clientLabel?: string;
+  /** Rendement annuel total visé (%), dividendes inclus : l'optimiseur cherche le portefeuille le moins risqué qui l'atteint */
+  targetYieldPct?: number;
+  /** Nombre maximal de lignes souhaité */
+  maxLines?: number;
+  /** Poids maximal d'une ligne (%) */
+  maxWeightPct?: number;
+  excludedSectors?: string[];
+  excludedSymbols?: string[];
+}
+
+export interface LineForecast {
+  symbol: string;
+  expectedReturn3MPct: number;
+  probUp3M: number;
+  hitRate3M: number;
+  p5: number;
+  p95: number;
+  explanation: string | null;
+}
+
+export interface OptimizationSummary {
+  method: "optimizer" | "heuristic";
+  targetYieldPct: number | null;
+  reachedTarget: boolean;
+  maxAchievablePct: number;
+  expectedAnnualReturnPct: number;
+  volatilityPct: number;
+  sharpe: number;
+  dividendYieldPct: number;
+  minVolatilityPct: number;
+  riskFreePct: number;
+  constraints: { maxWeightPct: number; maxSectorWeightPct: number; maxLines: number; investedMaxPct: number; excludedSectors: string[]; excludedSymbols: string[] };
+  frontier: { targetReturnPct: number; volatilityPct: number; expectedReturnPct: number }[];
+  notes: string[];
 }
 
 export interface AllocationLine {
@@ -65,6 +105,10 @@ export interface AdvisoryReport {
   existing: { diagnostic: PortfolioDiagnostic; actions: PortfolioDiagnostic["rebalancing"] } | null;
   /** Actualité prise en compte : sentiment de place et titres marquants */
   newsContext: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
+  /** Optimisation moyenne-variance : cible, faisabilité, frontière efficiente */
+  optimization: OptimizationSummary;
+  /** Prévisions probabilistes des valeurs retenues */
+  forecasts: LineForecast[];
   summary: string[];
   warnings: string[];
 }
@@ -109,6 +153,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
  */
 export class AdvisoryService extends EventEmitter {
   private newsService: NewsService | null = null;
+  private forecasts: ForecastService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -120,6 +165,27 @@ export class AdvisoryService extends EventEmitter {
 
   attachNews(news: NewsService): void {
     this.newsService = news;
+  }
+
+  attachForecasts(fc: ForecastService): void {
+    this.forecasts = fc;
+  }
+
+  /**
+   * Rendement annuel attendu d'une valeur pour l'optimiseur : dividende + espérance de cours.
+   * L'espérance de cours mélange la prévision 3 mois annualisée (pondérée par sa confiance) et
+   * l'objectif de cours de l'analyse technique, bornée à ±40 %.
+   */
+  private expectedAnnualReturn(rec: Recommendation, fc: Forecast | undefined, horizonMonths: number): number {
+    const techPrice = ((rec.targetPrice - rec.price) / rec.price) * (12 / Math.max(6, horizonMonths));
+    let price = techPrice;
+    if (fc) {
+      const h3 = fc.horizons[2];
+      const fcAnnual = Math.max(-0.4, Math.min(0.4, (h3.expectedReturnPct / 100) * 4));
+      const w = 0.4 + 0.4 * h3.confidence;
+      price = fcAnnual * w + techPrice * (1 - w);
+    }
+    return Math.max(-0.4, Math.min(0.4, price)) + rec.dividendYield / 100;
   }
 
   /** Génère le rapport (sans le persister). */
@@ -144,14 +210,55 @@ export class AdvisoryService extends EventEmitter {
     const recs = INSTRUMENTS.map((i) => recommend(this.advisor.technical(i.symbol), ctx)).sort((a, b) => b.score - a.score);
     const recMap = new Map(recs.map((r) => [r.symbol, r]));
     const existingValue = positions.reduce((a, p) => a + p.quantity * p.currentPrice, 0);
-    const proposal = proposeAllocation(recs, profile, input.capital);
     const tol = profile.effectiveRiskTolerance;
     const market = this.newsService?.marketSentiment() ?? { score: 0, count: 0, headlines: [] };
     // actualité de place défavorable : réserve de liquidités relevée de 5 points
     const cashReservePct = (tol >= 4 ? 10 : tol >= 3 ? 15 : 30) + (market.score <= -0.2 ? 5 : 0);
 
+    // ---- Optimisation moyenne-variance sous contraintes ----
+    const fcMap = this.forecasts?.all() ?? new Map<string, Forecast>();
+    const excludedSectors = input.excludedSectors ?? [];
+    const excludedSymbols = (input.excludedSymbols ?? []).map((x) => x.toUpperCase());
+    const maxLines = Math.max(2, Math.min(15, Math.round(input.maxLines ?? (tol >= 4 ? 6 : 8))));
+    const maxWeight = Math.max(5, Math.min(60, input.maxWeightPct ?? 25)) / 100;
+    const maxSectorWeight = Math.min(1, Math.max(maxWeight, tol >= 4 ? 0.6 : 0.45));
+    const investedMax = 1 - cashReservePct / 100;
+    const universe = recs.filter((r) => r.action !== "VENTE" && r.action !== "ÉVITER" && r.fitScore >= 30 && !excludedSectors.includes(r.sector) && !excludedSymbols.includes(r.symbol));
+    const returnsBySymbol = new Map<string, number[]>();
+    for (const r of universe) {
+      const closes = this.market.history(r.symbol, 300).map((c) => c.close);
+      if (closes.length >= 60) returnsBySymbol.set(r.symbol, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
+    }
+    const assets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: this.expectedAnnualReturn(r, fcMap.get(r.symbol), declared.horizonMonths), dividendYield: r.dividendYield / 100, price: r.price }));
+    const target = input.targetYieldPct != null && input.targetYieldPct > 0 ? input.targetYieldPct / 100 : null;
+    let opt: OptimizationResult | null = null;
+    try {
+      opt = optimize(assets, returnsBySymbol, { maxWeight, maxSectorWeight, maxLines, investedMax, excludedSectors, excludedSymbols }, target, RISK_FREE_RATE);
+    } catch (e) {
+      opt = null;
+    }
+    let method: OptimizationSummary["method"] = "optimizer";
+    let proposal: { symbol: string; name: string; quantity: number; amount: number; weightPct: number }[] = [];
+    if (opt && opt.feasible && opt.weights.length >= 2) {
+      proposal = opt.weights
+        .map((w) => {
+          const rec = recMap.get(w.symbol)!;
+          const amount = input.capital * w.weight;
+          const quantity = Math.floor(amount / rec.price);
+          return { symbol: w.symbol, name: rec.name, quantity, amount: quantity * rec.price, weightPct: r1(((quantity * rec.price) / input.capital) * 100) };
+        })
+        .filter((p) => p.quantity > 0);
+    }
+    if (proposal.length < 2) {
+      method = "heuristic";
+      proposal = proposeAllocation(recs.filter((r) => !excludedSectors.includes(r.sector) && !excludedSymbols.includes(r.symbol)), profile, input.capital);
+    }
+
     const allocation: AllocationLine[] = proposal.map((p) => {
       const rec = recMap.get(p.symbol)!;
+      const fc = fcMap.get(p.symbol);
+      const rationale = rec.rationale.slice(0, 2);
+      if (fc) rationale.push(`Prévision 3 mois : ${fc.horizons[2].expectedReturnPct > 0 ? "+" : ""}${fc.horizons[2].expectedReturnPct} % (hausse à ${Math.round(fc.horizons[2].probUp * 100)} %)`);
       return {
         symbol: p.symbol,
         name: p.name,
@@ -163,8 +270,14 @@ export class AdvisoryService extends EventEmitter {
         dividendYield: rec.dividendYield,
         expectedReturnPct: rec.expectedReturnPct,
         fitScore: rec.fitScore,
-        rationale: rec.rationale.slice(0, 3),
+        rationale: rationale.slice(0, 3),
       };
+    });
+    const forecastsOut: LineForecast[] = allocation.flatMap((l) => {
+      const fc = fcMap.get(l.symbol);
+      if (!fc) return [];
+      const h = fc.horizons[2];
+      return [{ symbol: l.symbol, expectedReturn3MPct: h.expectedReturnPct, probUp3M: h.probUp, hitRate3M: h.accuracy.hitRate, p5: h.quantiles.p5, p95: h.quantiles.p95, explanation: h.explanations[0] ?? null }];
     });
     const invested = allocation.reduce((a, l) => a + l.amount, 0);
     const cashReserve = input.capital - invested;
@@ -176,9 +289,12 @@ export class AdvisoryService extends EventEmitter {
     const w = (l: AllocationLine) => (invested ? l.amount / invested : 0);
     const divYield = allocation.reduce((a, l) => a + l.dividendYield * w(l), 0);
     const horizonYears = declared.horizonMonths / 12;
-    const expectedReturn = allocation.reduce((a, l) => a + l.expectedReturnPct * w(l), 0);
-    const annualized = horizonYears > 0 ? (Math.pow(1 + expectedReturn / 100, 1 / horizonYears) - 1) * 100 : expectedReturn;
-    const vol = allocation.reduce((a, l) => a + (INSTRUMENT_MAP.get(l.symbol)?.volatility ?? 0.3) * w(l), 0) * 0.8; // diversification ≈ -20 %
+    const usedOpt = method === "optimizer" && opt;
+    // Avec l'optimiseur : rendement annuel = μ'w (prévision + dividende) ; volatilité issue de la covariance réelle
+    const annualFromOpt = usedOpt ? (allocation.reduce((a, l) => a + (assets.find((x) => x.symbol === l.symbol)?.expectedReturn ?? 0) * w(l), 0)) * 100 : NaN;
+    const expectedReturn = usedOpt ? (Math.pow(1 + annualFromOpt / 100, horizonYears) - 1) * 100 : allocation.reduce((a, l) => a + l.expectedReturnPct * w(l), 0);
+    const annualized = usedOpt ? annualFromOpt : horizonYears > 0 ? (Math.pow(1 + expectedReturn / 100, 1 / horizonYears) - 1) * 100 : expectedReturn;
+    const vol = usedOpt && opt!.invested > 0 ? opt!.volatility / opt!.invested : allocation.reduce((a, l) => a + (INSTRUMENT_MAP.get(l.symbol)?.volatility ?? 0.3) * w(l), 0) * 0.8; // diversification ≈ -20 %
     const maxLine = allocation.reduce((a, l) => Math.max(a, l.weightPct), 0);
     const horizonVol = vol * Math.sqrt(Math.max(0.25, horizonYears));
     const central = invested * (1 + expectedReturn / 100) + cashReserve;
@@ -201,7 +317,9 @@ export class AdvisoryService extends EventEmitter {
     summary.push(`Profil ${profile.style.toLowerCase()} avec un objectif ${objectiveLabel} sur ${declared.horizonMonths} mois : ${allocation.length} valeurs sur ${sectorBreakdown.length} secteur(s), ${r0((invested / input.capital) * 100)} % investis et ${r0(cashReservePct)} % de réserve de liquidités recommandée.`);
     if (allocation.length) summary.push(`Rendement de dividende attendu ${r1(divYield)} % par an (≈ ${r0((invested * divYield) / 100).toLocaleString("fr-FR")} FCFA), performance visée ${r1(expectedReturn)} % sur l'horizon (${r1(annualized)} % annualisé), volatilité estimée ${r0(vol * 100)} %.`);
     const top = allocation[0];
-    if (top) summary.push(`Première conviction : ${top.name} (${top.weightPct} %), ${top.rationale[0]?.toLowerCase() ?? "signal favorable"}.`);
+    const topFc = top ? fcMap.get(top.symbol) : undefined;
+    if (top && method === "optimizer") summary.push(`Première ligne : ${top.name} (${top.weightPct} %), retenue pour son couple rendement attendu / risque${topFc ? ` ; prévision 3 mois ${topFc.horizons[2].expectedReturnPct > 0 ? "+" : ""}${topFc.horizons[2].expectedReturnPct} % (hausse à ${Math.round(topFc.horizons[2].probUp * 100)} %)` : ""}.`);
+    else if (top) summary.push(`Première conviction : ${top.name} (${top.weightPct} %), ${top.rationale[0]?.toLowerCase() ?? "signal favorable"}.`);
     if (existing) {
       summary.push(`Portefeuille existant : santé ${existing.diagnostic.healthScore}/100, diversification ${existing.diagnostic.diversificationScore}/100, ${existing.actions.length} action(s) de rééquilibrage proposée(s).`);
       warnings.push(...existing.diagnostic.suggestions);
@@ -217,6 +335,33 @@ export class AdvisoryService extends EventEmitter {
     }
     const lineNews = allocation.filter((l) => l.rationale.some((x) => x.startsWith("Actualité")));
     if (lineNews.length) summary.push(`${lineNews.length} valeur(s) de l'allocation bénéficient d'une actualité récente favorable.`);
+
+    const optimization: OptimizationSummary = {
+      method,
+      targetYieldPct: target != null ? r1(target * 100) : null,
+      reachedTarget: opt ? opt.reachedTarget : false,
+      maxAchievablePct: opt ? r1(opt.maxAchievableReturn * 100) : 0,
+      expectedAnnualReturnPct: r1(usedOpt ? opt!.expectedReturn * 100 : annualized),
+      volatilityPct: r1((usedOpt ? opt!.volatility : vol) * 100),
+      sharpe: opt ? opt.sharpe : 0,
+      dividendYieldPct: r1(usedOpt ? opt!.dividendYield * 100 : divYield),
+      minVolatilityPct: opt ? r1(opt.minVolatility * 100) : 0,
+      riskFreePct: r1(RISK_FREE_RATE * 100),
+      constraints: { maxWeightPct: r0(maxWeight * 100), maxSectorWeightPct: r0(maxSectorWeight * 100), maxLines, investedMaxPct: r0(investedMax * 100), excludedSectors, excludedSymbols },
+      frontier: opt ? opt.frontier.map((p) => ({ targetReturnPct: r1(p.targetReturn * 100), volatilityPct: r1(p.volatility * 100), expectedReturnPct: r1(p.expectedReturn * 100) })) : [],
+      notes: opt ? [...opt.notes] : ["Optimiseur indisponible : allocation heuristique par score."],
+    };
+    if (method === "optimizer") {
+      summary.push(`Allocation optimisée (moyenne-variance, covariance sur 300 séances) : ${optimization.expectedAnnualReturnPct} % de rendement annuel attendu pour ${optimization.volatilityPct} % de volatilité (ratio de Sharpe ${optimization.sharpe}, taux sans risque ${optimization.riskFreePct} %).`);
+      if (target != null) summary.push(optimization.reachedTarget ? `Objectif de rendement de ${optimization.targetYieldPct} % atteint avec le portefeuille le moins risqué possible sous vos contraintes.` : `Objectif de ${optimization.targetYieldPct} % non atteignable sous vos contraintes : maximum ${optimization.maxAchievablePct} %. Relâchez le poids maximal, le nombre de lignes ou l'horizon.`);
+      if (target != null && !optimization.reachedTarget) warnings.push(`Rendement visé ${optimization.targetYieldPct} % hors de portée dans les conditions actuelles (maximum ${optimization.maxAchievablePct} %).`);
+    } else {
+      summary.push("Allocation heuristique par score Kraken (univers trop restreint pour l'optimiseur).");
+    }
+    if (forecastsOut.length) {
+      const avgHit = forecastsOut.reduce((a, f) => a + f.hitRate3M, 0) / forecastsOut.length;
+      summary.push(`Prévisions à 3 mois : précision directionnelle historique moyenne ${r0(avgHit * 100)} % sur les valeurs retenues ; les intervalles à 90 % sont indiqués ligne par ligne.`);
+    }
 
     return {
       generatedAt: Date.now(),
@@ -239,6 +384,8 @@ export class AdvisoryService extends EventEmitter {
       scenarios,
       existing,
       newsContext: { marketSentiment: market.score, marketCount: market.count, headlines: market.headlines },
+      optimization,
+      forecasts: forecastsOut,
       summary,
       warnings,
     };

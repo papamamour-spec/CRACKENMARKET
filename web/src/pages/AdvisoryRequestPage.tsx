@@ -19,6 +19,7 @@ export function AdvisoryRequestPage() {
   const isSgi = user?.role === "sgi";
   const [sectors, setSectors] = useState<string[]>([]);
   const [form, setForm] = useState({ capital: 5_000_000, objective: "balanced", horizonMonths: 36, riskTolerance: 3, preferredSectors: [] as string[], constraints: "", clientLabel: "" });
+  const [target, setTarget] = useState({ targetYieldPct: 0, maxLines: 8, maxWeightPct: 25, excludedSectors: [] as string[] });
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [newHolding, setNewHolding] = useState<{ symbol: string; quantity: number }>({ symbol: "SNTS", quantity: 100 });
   const [preview, setPreview] = useState<AdvisoryReport | null>(null);
@@ -35,7 +36,7 @@ export function AdvisoryRequestPage() {
   }, []);
   useEffect(load, [notifications.length]);
 
-  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined });
+  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors });
   const doPreview = async () => {
     setBusy(true);
     setMsg(null);
@@ -62,6 +63,7 @@ export function AdvisoryRequestPage() {
       setBusy(false);
     }
   };
+  const toggleExcluded = (s: string) => setTarget({ ...target, excludedSectors: target.excludedSectors.includes(s) ? target.excludedSectors.filter((x) => x !== s) : [...target.excludedSectors, s] });
   const toggleSector = (s: string) => setForm({ ...form, preferredSectors: form.preferredSectors.includes(s) ? form.preferredSectors.filter((x) => x !== s) : [...form.preferredSectors, s].slice(0, 5) });
   const symbols = Array.from(quotes.keys()).sort();
 
@@ -102,6 +104,18 @@ export function AdvisoryRequestPage() {
             <label>Secteurs privilégiés (facultatif, 5 max.)</label>
             {sectors.map((s) => <span key={s} className={`chip ${form.preferredSectors.includes(s) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleSector(s)}>{s}</span>)}
           </div>
+          <fieldset className="optim">
+            <legend>Portefeuille souhaité · optimisation</legend>
+            <div className="grid grid-3" style={{ gap: 10 }}>
+              <div className="field"><label>Rendement annuel visé : {target.targetYieldPct > 0 ? `${target.targetYieldPct} %` : "au mieux"}</label><div className="range"><span className="muted">0</span><input type="range" min={0} max={30} step={0.5} value={target.targetYieldPct} onChange={(e) => setTarget({ ...target, targetYieldPct: Number(e.target.value) })} /><span className="muted">30 %</span></div><span className="muted" style={{ fontSize: 11 }}>Dividendes inclus ; l'optimiseur cherche le portefeuille le moins volatil qui l'atteint.</span></div>
+              <div className="field"><label>Nombre de lignes max. : {target.maxLines}</label><div className="range"><span className="muted">2</span><input type="range" min={2} max={15} value={target.maxLines} onChange={(e) => setTarget({ ...target, maxLines: Number(e.target.value) })} /><span className="muted">15</span></div></div>
+              <div className="field"><label>Poids max. par valeur : {target.maxWeightPct} %</label><div className="range"><span className="muted">5</span><input type="range" min={5} max={60} step={5} value={target.maxWeightPct} onChange={(e) => setTarget({ ...target, maxWeightPct: Number(e.target.value) })} /><span className="muted">60</span></div></div>
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Secteurs exclus</label>
+              {sectors.map((s) => <span key={s} className={`chip ${target.excludedSectors.includes(s) ? "excl" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleExcluded(s)}>{target.excludedSectors.includes(s) ? "✕ " : ""}{s}</span>)}
+            </div>
+          </fieldset>
           <div className="field"><label>Contraintes particulières (facultatif)</label><input value={form.constraints} onChange={(e) => setForm({ ...form, constraints: e.target.value })} placeholder="Ex. exclure les valeurs bancaires, conserver 2 M FCFA disponibles à 6 mois…" /></div>
           <div className="field">
             <label>Portefeuille déjà détenu (facultatif)</label>

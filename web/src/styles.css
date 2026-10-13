@@ -165,7 +165,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px
 .btn.sm { padding: 4px 10px; font-size: 12px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 10px; }
+.seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 10px; white-space: nowrap; }
 .seg button.active { background: var(--bg-3); color: var(--text); }
 .error { color: var(--down); font-size: 13px; margin: 8px 0; }
 .success { color: var(--up); font-size: 13px; margin: 8px 0; }
@@ -323,3 +323,40 @@ details.card[open] > summary::before { content: "▾ "; }
 .empty-icon { font-size: 28px; margin-bottom: 6px; color: var(--accent); }
 .empty b { color: var(--text); display: block; margin-bottom: 4px; }
 .table-wrap { overflow-x: auto; }
+
+/* Prévisions */
+.probbar { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--down) 55%, transparent); overflow: hidden; margin: 4px 0; }
+.probbar span { display: block; height: 100%; background: var(--up); }
+.probbar.sm { width: 70px; display: inline-block; margin: 0 0 2px; }
+.interval { width: 100%; height: 12px; display: block; }
+.interval .zero { stroke: var(--border); stroke-width: .6; }
+.interval .band { fill: color-mix(in srgb, var(--accent) 35%, transparent); }
+.interval .core { fill: var(--accent); }
+.interval .median { stroke: var(--text); stroke-width: .8; }
+tr.sel td { background: var(--bg-3); }
+.contrib { display: grid; grid-template-columns: 1fr 120px 60px; gap: 8px; align-items: center; font-size: 12px; margin: 3px 0; }
+.contrib > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contrib-bar { position: relative; height: 8px; background: var(--bg-3); border-radius: 4px; }
+.contrib-bar::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.contrib-bar span { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.contrib-bar span.pos { background: var(--up); }
+.contrib-bar span.neg { background: var(--down); }
+.contrib .mono { text-align: right; }
+.frontier { width: 100%; max-width: 360px; height: auto; display: block; }
+.frontier .axis { stroke: var(--border); stroke-width: 1; }
+.frontier .lbl { font-size: 9px; fill: var(--muted); }
+.frontier .lbl.strong { fill: var(--text); font-weight: 600; }
+.frontier .curve { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.frontier .pt { fill: var(--accent); }
+.frontier .chosen { fill: var(--up); stroke: var(--bg-2); stroke-width: 1.5; }
+.frontier .rf { fill: var(--muted); }
+fieldset.optim { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px 6px; margin: 0 0 12px; }
+fieldset.optim legend { font-size: 12px; color: var(--muted); padding: 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+.chip.excl { background: color-mix(in srgb, var(--down) 25%, transparent); color: var(--down); }
+.learn { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.months { display: flex; gap: 6px; align-items: flex-end; overflow-x: auto; padding-bottom: 4px; }
+.month { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; min-width: 34px; }
+.month .bar { height: 60px; width: 18px; background: var(--bg-3); border-radius: 3px; display: flex; align-items: flex-end; overflow: hidden; }
+.month .bar span { display: block; width: 100%; }
+.month .bar span.pos { background: var(--up); }
+.month .bar span.neg { background: var(--down); }

@@ -15,6 +15,7 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { LandingPage } from "./pages/LandingPage";
 import { LeaderboardPage } from "./pages/LeaderboardPage";
 import { NewsPage } from "./pages/NewsPage";
+import { ForecastsPage } from "./pages/ForecastsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { AccountPage } from "./pages/AccountPage";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
@@ -66,6 +67,7 @@ export function App() {
             <Route path="/classement" element={<LeaderboardPage />} />
             <Route path="/investisseur/:id" element={<PublicProfilePage />} />
             <Route path="/actualites" element={<NewsPage />} />
+            <Route path="/previsions" element={<ForecastsPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/compte" element={<AccountPage />} />
             <Route path="/conseil" element={<AdvisoryRequestPage />} />
