@@ -40,6 +40,8 @@ export interface HorizonForecast {
   priceTargets: { p5: number; p50: number; p95: number };
   /** précision mesurée en test chronologique (30 % des observations) */
   accuracy: { hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; samples: number };
+  /** apprentissage continu : précision en conditions réelles et réglages appris */
+  learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
   confidence: number; // 0..1
   models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
   contributions: Contribution[];
@@ -149,9 +151,38 @@ function arForecast(returns: number[], h: number, p = 5): number {
   return total * 0.5;
 }
 
+/**
+ * Paramètres appris en continu pour une valeur et un horizon (voir `services/learning.ts`).
+ * Ils sont recalibrés à chaque prévision résolue : rien n'est figé.
+ */
+export interface ModelParams {
+  version: number;
+  /** régularisation ridge (choisie par validation en marche avant) */
+  lambda: number;
+  /** facteur appliqué à la volatilité des simulations (calibré sur la couverture réelle de l'intervalle 90 %) */
+  volScale: number;
+  /** correction de biais : moyenne mobile exponentielle des écarts réalisé − prévu (points de %) */
+  bias: number;
+  /** poids de l'actualité (renforcé si elle réduit l'erreur réalisée, affaibli sinon) */
+  newsFactor: number;
+  /** erreur absolue réalisée (EWMA, en %) de chaque modèle, null tant qu'aucune prévision n'est résolue */
+  modelErr: { ridge: number | null; ar: number | null };
+  /** statistiques réelles cumulées */
+  resolved: number;
+  hits: number;
+  sumAbsErr: number;
+  covered: number;
+  sumBrier: number;
+  updatedAt: number;
+}
+
+export const DEFAULT_PARAMS: ModelParams = { version: 0, lambda: 5, volScale: 1, bias: 0, newsFactor: 0.5, modelErr: { ridge: null, ar: null }, resolved: 0, hits: 0, sumAbsErr: 0, covered: 0, sumBrier: 0, updatedAt: 0 };
+
 export interface ForecastInput {
   symbol: string;
   candles: Candle[];
+  /** paramètres appris par horizon (sinon valeurs par défaut) */
+  params?: Partial<Record<Horizon, ModelParams>>;
   /** historique de l'indice (clôtures) aligné sur les dates des bougies, facultatif */
   indexCloses?: number[] | null;
   /** sentiment d'actualité récent [-1, 1] et nombre d'articles */
@@ -184,7 +215,8 @@ export function forecast(input: ForecastInput): Forecast {
       if (!x) continue;
       rows.push({ x, y: Math.log(closes[t + h] / closes[t]), t });
     }
-    const lambda = 5;
+    const P = input.params?.[horizon] ?? DEFAULT_PARAMS;
+    const lambda = P.lambda;
     let hitRate = 0.5;
     let baselineHitRate = 0.5;
     let maePct = 0;
@@ -248,25 +280,39 @@ export function forecast(input: ForecastInput): Forecast {
     const arShrink = shrinkOf(arTestMae);
     ridgePct = drift + ridgeShrink * (ridgePct - drift);
     const arPct = drift + arShrink * (arForecast(returns.slice(1), h) * 100 - drift);
-    // Pondération par l'inverse de l'erreur de test
-    const wr = Number.isFinite(ridgeTestMae) && ridgeTestMae > 0 ? 1 / ridgeTestMae : 1;
-    const wa = Number.isFinite(arTestMae) && arTestMae > 0 ? 1 / arTestMae : 0.6;
+    // Pondération par l'inverse de l'erreur : erreur de test (backtest) et, dès qu'elles existent,
+    // erreurs réalisées en conditions réelles (apprentissage continu), à parts égales
+    const blend = (testMae: number, live: number | null) => {
+      const t = Number.isFinite(testMae) && testMae > 0 ? testMae * 100 : null;
+      if (t == null && live == null) return null;
+      if (t == null) return live!;
+      if (live == null || P.resolved < 10) return t;
+      return 0.5 * t + 0.5 * live;
+    };
+    const er = blend(ridgeTestMae, P.modelErr.ridge);
+    const ea = blend(arTestMae, P.modelErr.ar);
+    const wr = er != null && er > 0 ? 1 / er : 1;
+    const wa = ea != null && ea > 0 ? 1 / ea : 0.6;
     const wsum = wr + wa;
     const weights = { ridge: Math.round((wr / wsum) * 100) / 100, ar: Math.round((wa / wsum) * 100) / 100 };
     let expected = (ridgePct * wr + arPct * wa) / wsum;
-    // Actualité : décalage proportionnel au sentiment, borné à ±1 volatilité d'horizon
+    // Correction de biais apprise (amortie de moitié)
+    const biasAdj = P.resolved >= 10 ? P.bias * 0.5 : 0;
+    expected += biasAdj;
+    // Actualité : décalage proportionnel au sentiment, poids appris, borné à ±1 volatilité d'horizon
     let newsAdj = 0;
     if (input.news && input.news.count > 0 && Math.abs(input.news.score) >= 0.15) {
-      newsAdj = Math.max(-1, Math.min(1, input.news.score)) * dailyVol * Math.sqrt(h) * 100 * 0.5;
+      newsAdj = Math.max(-1, Math.min(1, input.news.score)) * dailyVol * Math.sqrt(h) * 100 * P.newsFactor;
       expected += newsAdj;
     }
-    // Monte-Carlo : 1 000 trajectoires, dérive = espérance de l'ensemble, volatilité EWMA
+    // Monte-Carlo : 1 000 trajectoires, dérive = espérance de l'ensemble, volatilité EWMA × facteur appris
     const paths = 1000;
+    const simVol = dailyVol * P.volScale;
     const driftDaily = Math.log(1 + expected / 100) / h;
     const outcomes: number[] = [];
     for (let p = 0; p < paths; p++) {
       let lp = 0;
-      for (let d = 0; d < h; d++) lp += driftDaily - 0.5 * dailyVol * dailyVol + dailyVol * gaussian(rand);
+      for (let d = 0; d < h; d++) lp += driftDaily - 0.5 * simVol * simVol + simVol * gaussian(rand);
       outcomes.push((Math.exp(lp) - 1) * 100);
     }
     outcomes.sort((a, b) => a - b);
@@ -285,7 +331,9 @@ export function forecast(input: ForecastInput): Forecast {
       explanations.push(`${c.label} (${f.fmt(c.value)}) ${c.contributionPct > 0 ? "soutient" : "pèse sur"} la prévision : ${c.contributionPct > 0 ? "+" : ""}${c.contributionPct.toFixed(1)} pt`);
     }
     if (Math.abs(arPct) >= 0.3) explanations.push(`Le modèle autorégressif sur les rendements quotidiens ${arPct > 0 ? "anticipe une poursuite" : "anticipe un essoufflement"} (${arPct > 0 ? "+" : ""}${arPct.toFixed(1)} %)`);
-    if (newsAdj !== 0) explanations.push(`Actualité récente ${newsAdj > 0 ? "favorable" : "défavorable"} : ${newsAdj > 0 ? "+" : ""}${newsAdj.toFixed(1)} pt`);
+    if (newsAdj !== 0) explanations.push(`Actualité récente ${newsAdj > 0 ? "favorable" : "défavorable"} : ${newsAdj > 0 ? "+" : ""}${newsAdj.toFixed(1)} pt (poids appris ${P.newsFactor.toFixed(2)})`);
+    if (Math.abs(biasAdj) >= 0.2) explanations.push(`Correction de biais apprise sur ${P.resolved} prévisions résolues : ${biasAdj > 0 ? "+" : ""}${biasAdj.toFixed(1)} pt`);
+    if (P.resolved >= 10) explanations.push(`En conditions réelles (${P.resolved} prévisions résolues) : direction correcte ${Math.round((P.hits / P.resolved) * 100)} % du temps, intervalle 90 % tenu ${Math.round((P.covered / P.resolved) * 100)} % du temps${P.volScale !== 1 ? ` ; largeur des intervalles ajustée ×${P.volScale.toFixed(2)}` : ""}`);
     if (ridgeShrink < 1 && samples >= 30) explanations.push(`Le modèle n'améliore que peu l'erreur naïve en test : prévision ramenée à ${Math.round(ridgeShrink * 100)} % de son écart à la dérive historique (${drift > 0 ? "+" : ""}${drift.toFixed(1)} %)`);
     explanations.push(samples >= 30 ? `Sur ${samples} fenêtres de test passées, la direction a été correcte ${Math.round(hitRate * 100)} % du temps (référence « toujours en hausse » : ${Math.round(baselineHitRate * 100)} %)` : "Historique de test insuffisant : prévision peu fiable");
 
@@ -301,6 +349,20 @@ export function forecast(input: ForecastInput): Forecast {
       accuracy: { hitRate: Math.round(hitRate * 100) / 100, baselineHitRate: Math.round(baselineHitRate * 100) / 100, maePct: Math.round(maePct * 10) / 10, naiveMaePct: Math.round(naiveMaePct * 10) / 10, samples },
       confidence: Math.round(confidence * 100) / 100,
       models: { ridgePct: Math.round(ridgePct * 10) / 10, arPct: Math.round(arPct * 10) / 10, newsAdjustmentPct: Math.round(newsAdj * 10) / 10, weights },
+      learning: {
+        version: P.version,
+        resolved: P.resolved,
+        liveHitRate: P.resolved ? Math.round((P.hits / P.resolved) * 100) / 100 : null,
+        liveMaePct: P.resolved ? Math.round((P.sumAbsErr / P.resolved) * 10) / 10 : null,
+        coverage90: P.resolved ? Math.round((P.covered / P.resolved) * 100) / 100 : null,
+        brier: P.resolved ? Math.round((P.sumBrier / P.resolved) * 1000) / 1000 : null,
+        lambda: P.lambda,
+        volScale: Math.round(P.volScale * 100) / 100,
+        biasPct: Math.round(biasAdj * 10) / 10,
+        newsFactor: Math.round(P.newsFactor * 100) / 100,
+        modelErr: P.modelErr,
+        updatedAt: P.updatedAt,
+      },
       contributions,
       explanations,
     });

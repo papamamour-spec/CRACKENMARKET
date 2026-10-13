@@ -3,6 +3,7 @@ import { INSTRUMENTS, INSTRUMENT_MAP } from "../data/instruments.js";
 import { forecast, type Forecast, type Horizon } from "../engine/forecast.js";
 import type { AdvisorService } from "./advisor.js";
 import type { MarketService } from "./market.js";
+import type { LearningService } from "./learning.js";
 
 const TTL_MS = 15 * 60_000;
 
@@ -13,7 +14,7 @@ export interface ForecastSummary {
   price: number;
   dailyVolPct: number;
   generatedAt: number;
-  horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number }>;
+  horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number; liveHitRate: number | null; resolved: number }>;
   summary: string;
   topExplanation: string | null;
 }
@@ -25,12 +26,22 @@ export interface ForecastSummary {
 export class ForecastService extends EventEmitter {
   private cache = new Map<string, { at: number; f: Forecast }>();
   private warmTimer: NodeJS.Timeout | null = null;
+  private learning: LearningService | null = null;
 
   constructor(
     private readonly market: MarketService,
     private readonly advisor: AdvisorService,
   ) {
     super();
+  }
+
+  /** Branche l'apprentissage continu : paramètres appris, journalisation, invalidation du cache après recalibrage. */
+  attachLearning(l: LearningService): void {
+    this.learning = l;
+    // après un recalibrage, les prévisions en cache restent consultables mais sont marquées périmées
+    const stale = () => { for (const e of this.cache.values()) e.at = 0; };
+    l.on("resolved", stale);
+    l.on("backfill", stale);
   }
 
   /** Réchauffe progressivement le cache (une valeur à la fois pour ne pas bloquer l'API). */
@@ -63,8 +74,9 @@ export class ForecastService extends EventEmitter {
     const indexCloses = candles.map((c) => idxByTs.get(c.ts) ?? NaN);
     const aligned = indexCloses.every((v) => Number.isFinite(v)) ? indexCloses : null;
     const news = this.advisor.newsContext().get(symbol);
-    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined });
+    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined, params: this.learning?.params(symbol) });
     this.cache.set(symbol, { at: Date.now(), f });
+    if (this.learning && candles.length) this.learning.log(f, candles[candles.length - 1].ts, "live");
     return f;
   }
 
@@ -76,7 +88,7 @@ export class ForecastService extends EventEmitter {
   summarize(f: Forecast): ForecastSummary {
     const inst = INSTRUMENT_MAP.get(f.symbol)!;
     const horizons = Object.fromEntries(
-      f.horizons.map((h) => [h.horizon, { expectedReturnPct: h.expectedReturnPct, probUp: h.probUp, hitRate: h.accuracy.hitRate, baselineHitRate: h.accuracy.baselineHitRate, confidence: h.confidence, p5: h.quantiles.p5, p95: h.quantiles.p95 }]),
+      f.horizons.map((h) => [h.horizon, { expectedReturnPct: h.expectedReturnPct, probUp: h.probUp, hitRate: h.accuracy.hitRate, baselineHitRate: h.accuracy.baselineHitRate, confidence: h.confidence, p5: h.quantiles.p5, p95: h.quantiles.p95, liveHitRate: h.learning.liveHitRate, resolved: h.learning.resolved }]),
     ) as ForecastSummary["horizons"];
     const m = f.horizons[1];
     return { symbol: f.symbol, name: inst.name, sector: inst.sector, price: f.price, dailyVolPct: f.dailyVolPct, generatedAt: f.generatedAt, horizons, summary: f.summary, topExplanation: m.explanations[0] ?? null };

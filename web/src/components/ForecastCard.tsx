@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
-import { HORIZON_LABEL, type Forecast, type Horizon, type HorizonForecast } from "../lib/types";
+import { HORIZON_LABEL, type Forecast, type ForecastLogRow, type Horizon, type HorizonForecast } from "../lib/types";
 import { SkeletonCard } from "./Skeleton";
 
 /** Barre de probabilité : part de hausse en vert, de baisse en rouge. */
@@ -26,14 +26,58 @@ function Interval({ h, scale }: { h: HorizonForecast; scale: number }) {
   );
 }
 
+/** Apprentissage continu : précision en conditions réelles, réglages appris, dernières prévisions résolues. */
+function LearningBlock({ h, journal }: { h: HorizonForecast; journal: ForecastLogRow[] }) {
+  const L = h.learning;
+  const resolved = journal.filter((j) => j.resolved_at != null).slice(0, 8);
+  const pending = journal.filter((j) => j.resolved_at == null).length;
+  return (
+    <div className="learn">
+      <div className="card-head" style={{ marginBottom: 6 }}>
+        <div><h4 style={{ margin: 0 }}>Apprentissage continu · {HORIZON_LABEL[h.horizon]}</h4><span className="muted" style={{ fontSize: 12 }}>Chaque prévision est journalisée puis confrontée au cours constaté ; le modèle se recalibre à chaque résolution (version {L.version}{L.updatedAt ? `, ${fmtDateTime(L.updatedAt)}` : ""}).</span></div>
+        <span className="badge hold">{L.resolved} résolue{L.resolved > 1 ? "s" : ""}{pending ? ` · ${pending} en attente` : ""}</span>
+      </div>
+      {L.resolved === 0 ? (
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>Aucune prévision encore résolue pour cet horizon : la précision réelle s'affichera dès que les premières échéances seront atteintes.</p>
+      ) : (
+        <div className="grid grid-3" style={{ gap: 10 }}>
+          <div className="kpi"><span className="label">Direction correcte (réel)</span><span className="value">{Math.round((L.liveHitRate ?? 0) * 100)} %</span><span className="sub muted">backtest {Math.round(h.accuracy.hitRate * 100)} % · Brier {L.brier}</span></div>
+          <div className="kpi"><span className="label">Erreur moyenne (réel)</span><span className="value">{L.liveMaePct} %</span><span className="sub muted">intervalle 90 % tenu {Math.round((L.coverage90 ?? 0) * 100)} % du temps</span></div>
+          <div className="kpi"><span className="label">Réglages appris</span><span className="value" style={{ fontSize: 14 }}>λ {L.lambda} · vol ×{L.volScale}</span><span className="sub muted">biais {fmtPct(L.biasPct, 1)} · actualité {L.newsFactor} · erreurs ridge {L.modelErr.ridge?.toFixed(1) ?? "—"} / AR {L.modelErr.ar?.toFixed(1) ?? "—"}</span></div>
+        </div>
+      )}
+      {resolved.length > 0 && (
+        <table style={{ marginTop: 8 }}>
+          <thead><tr><th className="left">Émise le</th><th>Cours</th><th>Prévu</th><th>Constaté</th><th>Direction</th><th>Intervalle</th><th className="left">Origine</th></tr></thead>
+          <tbody>
+            {resolved.map((j) => (
+              <tr key={j.id}>
+                <td className="left mono muted">{j.made_day}</td>
+                <td className="mono">{fmtNum(j.price)}</td>
+                <td className={`mono ${signClass(j.expected_pct)}`}>{fmtPct(j.expected_pct, 1)}</td>
+                <td className={`mono ${signClass(j.realized_pct ?? 0)}`}>{fmtPct(j.realized_pct ?? 0, 1)}</td>
+                <td className={j.hit ? "up" : "down"}>{j.hit ? "✓" : "✗"}</td>
+                <td className={j.covered ? "muted" : "down"}>{j.covered ? "tenu" : "dépassé"}</td>
+                <td className="left muted" style={{ fontSize: 11 }}>{j.source === "backfill" ? "amorçage (rejouée)" : "en direct"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /** Prévision probabiliste d'une valeur : trois horizons, précision mesurée, facteurs explicatifs. */
 export function ForecastCard({ symbol }: { symbol: string }) {
   const [f, setF] = useState<Forecast | null>(null);
   const [h, setH] = useState<Horizon>("1M");
   const [err, setErr] = useState<string | null>(null);
+  const [journal, setJournal] = useState<ForecastLogRow[]>([]);
   useEffect(() => {
     setF(null);
     api<Forecast>(`/market/forecast/${symbol}`).then(setF).catch((e) => setErr((e as Error).message));
+    api<ForecastLogRow[]>(`/market/forecasts/journal/${symbol}?limit=40`).then(setJournal).catch(() => setJournal([]));
   }, [symbol]);
   if (err) return <div className="card"><h3>Prévision</h3><p className="muted">{err}</p></div>;
   if (!f) return <SkeletonCard lines={6} />;
@@ -84,6 +128,7 @@ export function ForecastCard({ symbol }: { symbol: string }) {
           ))}
         </div>
       </div>
+      <LearningBlock h={cur} journal={journal.filter((j) => j.horizon === h)} />
       <p className="disclaimer">Prévision probabiliste issue de l'historique de la valeur ; la précision affichée est mesurée sur des fenêtres passées (30 % des observations, jamais vues à l'apprentissage) et ne garantit pas les résultats futurs.</p>
     </div>
   );

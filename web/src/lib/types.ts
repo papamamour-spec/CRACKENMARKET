@@ -485,15 +485,28 @@ export interface HorizonForecast {
   accuracy: { hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; samples: number };
   confidence: number;
   models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
+  learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
   contributions: Contribution[];
   explanations: string[];
 }
 export interface Forecast { symbol: string; price: number; generatedAt: number; dailyVolPct: number; horizons: HorizonForecast[]; summary: string }
 export interface ForecastSummary {
   symbol: string; name: string; sector: string; price: number; dailyVolPct: number; generatedAt: number;
-  horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number }>;
+  horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number; liveHitRate: number | null; resolved: number }>;
   summary: string; topExplanation: string | null;
 }
+export interface LearningStats { horizon: Horizon; pending: number; resolved: number; hitRate: number | null; maePct: number | null; coverage90: number | null; brier: number | null; naiveHitRate: number | null; naiveMaePct: number | null }
+export interface LearningSummary {
+  totalResolved: number;
+  totalPending: number;
+  lastCycleAt: number | null;
+  nextCycleAt: number | null;
+  backfill: { done: boolean; sessions: number } | null;
+  byHorizon: LearningStats[];
+  monthly: { month: string; horizon: Horizon; resolved: number; hitRate: number; maePct: number }[];
+  recentAdjustments: { symbol: string; horizon: Horizon; version: number; volScale: number; biasPct: number; newsFactor: number; lambda: number; resolved: number; updatedAt: number }[];
+}
+export interface ForecastLogRow { id: number; symbol: string; horizon: Horizon; made_at: number; made_day: string; price: number; expected_pct: number; prob_up: number; p5: number; p95: number; source: "live" | "backfill"; realized_pct: number | null; hit: number | null; abs_err: number | null; covered: number | null; resolved_at: number | null }
 export interface ForecastRanking { items: ForecastSummary[]; ready: number; total: number; horizon: Horizon }
 export type AdvisoryStatus = "generated" | "validated" | "declined";
 export interface AdvisoryView {

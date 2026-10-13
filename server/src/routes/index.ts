@@ -12,6 +12,7 @@ import type { SgiService, SgiOrderStatus } from "../services/sgi.js";
 import type { AdvisoryService } from "../services/advisory.js";
 import type { NewsService } from "../services/news.js";
 import type { ForecastService } from "../services/forecast.js";
+import type { LearningService } from "../services/learning.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -32,6 +33,7 @@ export interface Services {
   advisory: AdvisoryService;
   news: NewsService;
   forecasts: ForecastService;
+  learning: LearningService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -189,6 +191,20 @@ export function buildRouter(s: Services): Router {
     if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
     res.json(s.forecasts.get(symbol));
   });
+  r.get("/market/forecasts/learning", (_req, res) => res.json(s.learning.summary()));
+  r.get("/market/forecasts/journal/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json(s.learning.journal(symbol, Math.min(200, Number(req.query.limit ?? 30))));
+  });
+  r.post(
+    "/market/forecasts/learn",
+    guard,
+    asyncHandler((req, res) => {
+      if (req.auth!.role !== "analyst" && req.auth!.role !== "admin") throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ ...s.learning.runCycle(), summary: s.learning.summary() });
+    }),
+  );
   r.get("/market/forecasts", (req, res) => {
     const h = String(req.query.horizon ?? "1M");
     res.json(s.forecasts.ranking(h === "1W" || h === "3M" ? h : "1M"));

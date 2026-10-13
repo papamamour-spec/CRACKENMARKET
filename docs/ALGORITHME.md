@@ -127,3 +127,20 @@ Le taux sans risque de référence (`RISK_FREE_RATE`, 6 % par défaut, indicatif
 ## 10. Collecte élargie d'actualité
 
 `NewsService` suit par défaut huit sources : BRVM (actualités, avis et communiqués), RichBourse, Sika Finance (flux RSS et page Marchés), Financial Afrik, Agence Ecofin, Abidjan.net Économie. Trois analyseurs : RSS/Atom, page BRVM, et un **analyseur générique de listes d'articles** (liens internes au titre de 20 à 220 caractères, date et résumé trouvés à proximité). Chaque source a une **crédibilité** (BRVM 100 %, sites boursiers 90 %, presse économique 80 %, généraliste 60 %) qui pondère son sentiment dans les agrégats. L'état de chaque source (dernier passage, articles lus et retenus, erreur) est exposé par `/api/market/news` et affiché dans la page Signaux & agenda. Sources supplémentaires : `NEWS_FEEDS` (RSS) ou `NEWS_SOURCES_JSON` (`[{ "name", "url", "kind": "rss|html-list", "weight" }]`).
+
+## 11. Apprentissage continu (`server/src/services/learning.ts`)
+
+Le modèle de prévision n'est pas figé : il s'améliore à mesure que ses prévisions sont confrontées au marché.
+
+1. **Journal** : chaque prévision émise (une par jour, valeur et horizon) est enregistrée dans `forecast_log` avec son cours de référence, son espérance, sa probabilité de hausse, son intervalle 90 %, la part de chaque modèle et l'ajustement d'actualité.
+2. **Résolution** : quand l'horizon est atteint (5, 21 ou 63 séances), le cours réellement constaté donne le rendement réalisé, la direction correcte ou non, l'erreur absolue, le respect de l'intervalle et le score de Brier de la probabilité.
+3. **Recalibrage en ligne** (`model_params`, par valeur et horizon, versionné) à chaque résolution :
+   - erreurs réalisées de la régression et du modèle AR (moyennes mobiles exponentielles) qui, dès dix prévisions résolues, entrent pour moitié dans la pondération de l'ensemble ;
+   - **biais** : EWMA des écarts réalisé − prévu, appliqué amorti de moitié (borné à ±5 points) ;
+   - **largeur des intervalles** : si l'intervalle 90 % est tenu moins de 86 % du temps, la volatilité simulée est élargie ; au-delà de 94 %, resserrée ;
+   - **poids de l'actualité** : renforcé uniquement lorsque l'ajustement a réduit l'erreur, affaibli sinon.
+4. **Régularisation** : la pénalité ridge est rechoisie parmi {1, 5, 20, 60} par validation en marche avant, au plus une fois par semaine et par valeur, dès vingt prévisions résolues.
+5. **Amorçage** : au premier démarrage, des prévisions sont rejouées « comme à l'époque » (historique tronqué, sans actualité) toutes les cinq séances sur les 120 dernières (`FORECAST_BACKFILL_SESSIONS`), puis résolues : la boucle dispose immédiatement de prévisions hors échantillon, étiquetées « amorçage » dans le journal.
+6. **Cycle** : résolution et recalibrage toutes les six heures (ou à la demande d'un analyste, `POST /api/market/forecasts/learn`). Le cache des prévisions est marqué périmé après chaque recalibrage.
+
+La précision **en conditions réelles** (direction, erreur, couverture, Brier, par horizon et par mois) est exposée par `GET /api/market/forecasts/learning` et affichée séparément de la précision de backtest, avec les références naïves (« toujours en hausse », prévision nulle). Le journal d'une valeur est consultable via `GET /api/market/forecasts/journal/:symbol`.
