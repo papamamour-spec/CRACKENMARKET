@@ -144,3 +144,16 @@ Le modèle de prévision n'est pas figé : il s'améliore à mesure que ses pré
 6. **Cycle** : résolution et recalibrage toutes les six heures (ou à la demande d'un analyste, `POST /api/market/forecasts/learn`). Le cache des prévisions est marqué périmé après chaque recalibrage.
 
 La précision **en conditions réelles** (direction, erreur, couverture, Brier, par horizon et par mois) est exposée par `GET /api/market/forecasts/learning` et affichée séparément de la précision de backtest, avec les références naïves (« toujours en hausse », prévision nulle). Le journal d'une valeur est consultable via `GET /api/market/forecasts/journal/:symbol`.
+
+## 12. Analyse du portefeuille détenu (`server/src/services/holdings.ts`)
+
+L'utilisateur saisit les titres qu'il détient réellement chez sa SGI (symbole, quantité, prix de revient facultatif, liquidités), à la main, par import d'un relevé copié-collé (symbole ou nom de société, séparateurs libres) ou par copie du portefeuille virtuel. L'analyse produit :
+
+- **Valorisation** : valeur, coût, plus ou moins-value latente par ligne et totale, poids, dividendes annuels attendus.
+- **Avis Kraken par ligne** : recommandation (ACHAT FORT → ÉVITER), objectif et stop, prévision 1 et 3 mois avec probabilité de hausse, et une **action concrète** (renforcer, conserver, alléger, vendre) avec quantité et montant : vente sur signal négatif, allègement au-delà du plafond de poids du profil (25 %, 30 % pour un profil dynamique) ou sur prévision défavorable, renforcement sur signal favorable si la ligne est sous-pondérée et que les liquidités le permettent.
+- **Risque** : volatilité annuelle issue de la covariance réelle des titres, bêta contre le BRVM Composite, perte maximale sur un an du portefeuille aux quantités actuelles, VaR 95 % à un mois, concentration (indice de Herfindahl).
+- **Performance** passée des titres pondérée par leur valeur, comparée à l'indice sur chaque période.
+- **Portefeuille cible** : allocation optimisée (section 9) avec une prime de détention de 3 points pour les titres déjà en portefeuille (frais et fiscalité d'un aller-retour) ; les transactions pour s'en rapprocher sont listées, les mouvements inférieurs à 3 % du portefeuille ignorés.
+- **Actions ordonnées** par priorité (ventes, allègements, renforcements, nouvelles lignes, diversification, liquidités), synthèse et avertissements.
+
+Le portefeuille enregistré peut être transmis d'un clic au guichet de conseil (section 7) pour une proposition relue par un analyste.

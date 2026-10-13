@@ -35,6 +35,20 @@ export function AdvisoryRequestPage() {
     api<{ sectors: string[] }>("/market/sectors").then((r) => setSectors(r.sectors)).catch(() => {});
   }, []);
   useEffect(load, [notifications.length]);
+  // portefeuille transmis depuis la page « Analyser mon portefeuille »
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("cm.advisory.holdings");
+      if (raw) {
+        setHoldings(JSON.parse(raw) as Holding[]);
+        localStorage.removeItem("cm.advisory.holdings");
+      }
+    } catch { /* stockage indisponible */ }
+  }, []);
+  const loadSavedPortfolio = async () => {
+    const p = await api<{ positions: { symbol: string; quantity: number; avgPrice: number | null }[] }>("/holdings");
+    setHoldings(p.positions.map((x) => ({ symbol: x.symbol, quantity: x.quantity, avgPrice: x.avgPrice ?? undefined })));
+  };
 
   const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors });
   const doPreview = async () => {
@@ -123,6 +137,7 @@ export function AdvisoryRequestPage() {
               <select value={newHolding.symbol} onChange={(e) => setNewHolding({ ...newHolding, symbol: e.target.value })} style={{ width: 120 }}>{symbols.map((s) => <option key={s}>{s}</option>)}</select>
               <input type="number" style={{ width: 110 }} value={newHolding.quantity} onChange={(e) => setNewHolding({ ...newHolding, quantity: Number(e.target.value) })} placeholder="Quantité" />
               <button className="btn sm" onClick={() => newHolding.quantity > 0 && setHoldings([...holdings.filter((h) => h.symbol !== newHolding.symbol), { ...newHolding }])}>Ajouter</button>
+              <button className="btn sm" onClick={() => void loadSavedPortfolio()}>Utiliser mon portefeuille enregistré</button>
             </div>
             {holdings.length > 0 && <p style={{ margin: "6px 0 0" }}>{holdings.map((h) => <span key={h.symbol} className="chip">{h.symbol} × {h.quantity} <span style={{ cursor: "pointer" }} onClick={() => setHoldings(holdings.filter((x) => x.symbol !== h.symbol))}>✕</span></span>)}</p>}
           </div>

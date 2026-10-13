@@ -19,6 +19,7 @@ import { AdvisoryService } from "./services/advisory.js";
 import { NewsService } from "./services/news.js";
 import { ForecastService } from "./services/forecast.js";
 import { LearningService } from "./services/learning.js";
+import { HoldingsService } from "./services/holdings.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -42,9 +43,11 @@ async function main(): Promise<void> {
   const learning = new LearningService(db, market);
   forecasts.attachLearning(learning);
   advisory.attachForecasts(forecasts);
+  const holdings = new HoldingsService(db, market, advisor, portfolios);
+  holdings.attachForecasts(forecasts);
   forecasts.start();
   learning.start();
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning };
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

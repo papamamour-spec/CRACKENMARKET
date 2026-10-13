@@ -562,3 +562,30 @@ export interface NewsResponse {
   symbolSentiment: NewsSentiment | null;
   status: { sources: string[]; items: number; lastRun: { at: number; ok: string[]; failed: string[] } | null; details?: SourceStatus[] };
 }
+
+// ---- Portefeuille détenu (saisi) ----
+export interface HeldPosition { symbol: string; quantity: number; avgPrice: number | null; acquiredAt: number | null; note: string | null }
+export interface HeldPortfolio { label: string | null; cash: number; positions: HeldPosition[]; updatedAt: number | null }
+export type LineAction = "renforcer" | "conserver" | "alléger" | "vendre";
+export interface AnalysisLine {
+  symbol: string; name: string; sector: string; quantity: number; avgPrice: number | null; price: number; value: number; cost: number | null; pnl: number | null; pnlPct: number | null; weightPct: number; dividendYield: number; annualDividend: number;
+  perf: Record<string, number | null> | null;
+  recommendation: { action: string; score: number; confidence: number; fitScore: number; targetPrice: number; stopLoss: number; rationale: string[]; warnings: string[] };
+  forecast: { expected1M: number; probUp1M: number; expected3M: number; probUp3M: number; p5: number; p95: number; liveHitRate: number | null } | null;
+  action: { kind: LineAction; quantity: number; amount: number; reasons: string[] };
+}
+export interface PortfolioAnalysis {
+  generatedAt: number;
+  profileStyle: string;
+  totals: { invested: number; cost: number | null; pnl: number | null; pnlPct: number | null; cash: number; total: number; cashPct: number; annualDividendIncome: number; dividendYieldPct: number; lines: number; sectors: number };
+  lines: AnalysisLine[];
+  unknownSymbols: string[];
+  diagnostic: Diagnostic;
+  risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; topWeightPct: number; hhi: number; concentrationLabel: string };
+  forecast: { expected1MPct: number; expected3MPct: number; probUp1M: number; probUp3M: number; amount1M: number; amount3M: number };
+  performance: { portfolioPct: Record<string, number | null>; indexPct: Record<string, number | null> };
+  target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[]; keep: { symbol: string; weightPct: number }[] } | null;
+  actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" }[];
+  summary: string[];
+  warnings: string[];
+}

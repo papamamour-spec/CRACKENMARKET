@@ -13,6 +13,7 @@ import type { AdvisoryService } from "../services/advisory.js";
 import type { NewsService } from "../services/news.js";
 import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
+import type { HoldingsService } from "../services/holdings.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -34,6 +35,7 @@ export interface Services {
   news: NewsService;
   forecasts: ForecastService;
   learning: LearningService;
+  holdings: HoldingsService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -343,6 +345,58 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       s.portfolios.cancelOrder(req.auth!.sub, Number(req.params.id));
       res.json({ ok: true });
+    }),
+  );
+
+  // ---------- Portefeuille détenu (saisi par l'utilisateur) et son analyse ----------
+  const heldLine = z.object({ symbol: z.string().min(2).max(8), quantity: z.number().positive().max(1e9), avgPrice: z.number().positive().optional().nullable(), acquiredAt: z.number().optional().nullable(), note: z.string().max(200).optional().nullable() });
+  const toLine = (l: z.infer<typeof heldLine>) => ({ symbol: l.symbol.toUpperCase(), quantity: l.quantity, avgPrice: l.avgPrice ?? null, acquiredAt: l.acquiredAt ?? null, note: l.note ?? null });
+  r.get("/holdings", guard, (req, res) => res.json(s.holdings.get(req.auth!.sub)));
+  r.put(
+    "/holdings",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ label: z.string().max(80).optional().nullable(), cash: z.number().min(0).max(1e13).optional(), positions: z.array(heldLine).max(100) }).parse(req.body);
+      res.json(s.holdings.replace(req.auth!.sub, { label: body.label, cash: body.cash, positions: body.positions.map(toLine) }));
+    }),
+  );
+  r.post(
+    "/holdings/line",
+    guard,
+    asyncHandler((req, res) => res.json(s.holdings.upsertLine(req.auth!.sub, toLine(heldLine.parse(req.body))))),
+  );
+  r.delete("/holdings/line/:symbol", guard, (req, res) => res.json(s.holdings.removeLine(req.auth!.sub, req.params.symbol)));
+  r.put(
+    "/holdings/cash",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ cash: z.number().min(0).max(1e13), label: z.string().max(80).optional().nullable() }).parse(req.body);
+      res.json(s.holdings.setCash(req.auth!.sub, body.cash, body.label));
+    }),
+  );
+  r.post(
+    "/holdings/import",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ text: z.string().max(20000), replace: z.boolean().optional(), cash: z.number().min(0).optional() }).parse(req.body);
+      const parsed = s.holdings.parseImport(body.text);
+      if (body.replace === false) {
+        for (const p of parsed.positions) s.holdings.upsertLine(req.auth!.sub, p);
+        res.json({ ...s.holdings.get(req.auth!.sub), imported: parsed.positions.length, rejected: parsed.rejected });
+      } else {
+        const current = s.holdings.get(req.auth!.sub);
+        res.json({ ...s.holdings.replace(req.auth!.sub, { label: current.label, cash: body.cash ?? current.cash, positions: parsed.positions }), imported: parsed.positions.length, rejected: parsed.rejected });
+      }
+    }),
+  );
+  r.post("/holdings/import-virtual", guard, (req, res) => res.json(s.holdings.importVirtual(req.auth!.sub)));
+  r.get("/holdings/analysis", guard, (req, res) => res.json(s.holdings.analyze(req.auth!.sub)));
+  r.post(
+    "/holdings/analysis",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ cash: z.number().min(0).max(1e13).optional(), positions: z.array(heldLine).max(100) }).parse(req.body);
+      res.json(s.holdings.analyze(req.auth!.sub, { cash: body.cash ?? 0, positions: body.positions.map(toLine) }));
     }),
   );
 
