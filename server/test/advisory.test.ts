@@ -10,7 +10,7 @@ import type { MarketService } from "../src/services/market.js";
 
 // Marché et analyse technique factices, calculés sur l'historique synthétique
 const histories = new Map(INSTRUMENTS.map((i) => [i.symbol, generateDailyHistory(i, 300)]));
-const market = { price: (s: string) => INSTRUMENT_MAP.get(s)!.refPrice } as unknown as MarketService;
+const market = { price: (s: string) => INSTRUMENT_MAP.get(s)!.refPrice, history: (s: string, n: number) => histories.get(s)!.slice(-n) } as unknown as MarketService;
 const cache = new Map<string, ReturnType<typeof analyze>>();
 const advisor = { technical: (s: string) => cache.get(s) ?? (cache.set(s, analyze(s, histories.get(s)!)), cache.get(s)!), newsContext: () => new Map() } as unknown as AdvisorService;
 
@@ -58,5 +58,30 @@ describe("guichet de conseil", () => {
     const v = svc.create(userId, "sgi", "MATHA", { capital: 50_000_000, objective: "growth", horizonMonths: 60, riskTolerance: 4, clientLabel: "Fonds de pension X" });
     expect(svc.listForSgi("MATHA")).toHaveLength(1);
     expect(v.client_label).toBe("Fonds de pension X");
+  });
+});
+
+describe("optimiseur dans le conseil", () => {
+  it("vise un rendement cible et expose la frontière efficiente", () => {
+    const db = openMemoryDb();
+    const svc = new AdvisoryService(db, market, advisor);
+    const r = svc.generateReport({ capital: 20_000_000, objective: "balanced", horizonMonths: 24, riskTolerance: 3, targetYieldPct: 9, maxLines: 5, maxWeightPct: 30, excludedSectors: ["Banques"] });
+    expect(r.optimization.method).toBe("optimizer");
+    expect(r.allocation.length).toBeLessThanOrEqual(5);
+    for (const l of r.allocation) {
+      expect(l.sector).not.toBe("Banques");
+      expect(l.weightPct).toBeLessThanOrEqual(30.01);
+    }
+    expect(r.optimization.frontier.length).toBe(6);
+    expect(r.optimization.targetYieldPct).toBe(9);
+    expect(r.optimization.volatilityPct).toBeGreaterThan(0);
+    expect(r.summary.some((x) => x.includes("optimisée"))).toBe(true);
+  });
+  it("signale un objectif inatteignable", () => {
+    const db = openMemoryDb();
+    const svc = new AdvisoryService(db, market, advisor);
+    const r = svc.generateReport({ capital: 5_000_000, objective: "growth", horizonMonths: 12, riskTolerance: 4, targetYieldPct: 80 });
+    expect(r.optimization.reachedTarget).toBe(false);
+    expect(r.warnings.some((x) => x.includes("hors de portée"))).toBe(true);
   });
 });

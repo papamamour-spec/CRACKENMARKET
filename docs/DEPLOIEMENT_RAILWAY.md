@@ -36,6 +36,9 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `CORS_ORIGIN` | `*` | front et API servis par le même domaine |
    | `ADMIN_EMAIL` | e-mail de l'administrateur | avec `ADMIN_PASSWORD`, crée le compte administrateur au démarrage |
    | `ADMIN_PASSWORD` | mot de passe (8 caractères minimum) | ne jamais l'écrire dans le dépôt ; changer la variable réinitialise le mot de passe |
+   | `RISK_FREE_RATE` | `0.06` | taux sans risque annuel (obligations d'État UEMOA, indicatif) utilisé par l'optimiseur |
+   | `NEWS_FEEDS` | (facultatif) `https://…/feed,https://…/rss` | flux RSS supplémentaires pour la veille |
+   | `NEWS_SOURCES_JSON` | (facultatif) `[{"name":"…","url":"…","kind":"html-list","weight":0.7}]` | sources HTML ou RSS supplémentaires avec crédibilité |
 
    `PORT` est injecté automatiquement par Railway et lu par le serveur.
 5. **Générer un domaine** (le service est « non exposé » tant que ce n'est pas fait) : Service → *Settings* → *Networking* → *Generate Domain*.

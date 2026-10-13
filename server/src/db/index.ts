@@ -296,6 +296,7 @@ function migrate(d: DB): void {
     );
   `);
   d.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code)");
+  addColumn(d, "news_items", "weight", "REAL NOT NULL DEFAULT 1");
 }
 
 function addColumn(d: DB, table: string, column: string, definition: string): void {

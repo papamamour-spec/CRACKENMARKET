@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { OrderTicket } from "../components/OrderTicket";
 import { OrderBookPanel } from "../components/OrderBookPanel";
 import { NewsPanel } from "../components/NewsPanel";
+import { ForecastCard } from "../components/ForecastCard";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
@@ -110,6 +111,7 @@ export function InstrumentPage() {
         </div>
         <div className="grid">
           {rec && <RecommendationCard rec={rec} detailed />}
+          <ForecastCard symbol={symbol} />
           <NewsPanel symbol={symbol} limit={8} title={`Actualité ${symbol}`} />
           <details className="card">
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>Négocier cette valeur (carnet d'ordres, ticket, transactions)</summary>

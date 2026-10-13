@@ -9,6 +9,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Demander un conseil", to: "/conseil", hint: "Nouvelle demande de placement" },
   { label: "Portefeuille", to: "/portefeuille", hint: "Positions et ordres" },
   { label: "Performance", to: "/performance", hint: "Courbe et statistiques" },
+  { label: "Prévisions", to: "/previsions", hint: "Rendements attendus, probabilités, précision" },
   { label: "Signaux & agenda", to: "/actualites", hint: "Actualité, signaux, événements" },
   { label: "Marché", to: "/marche", hint: "Cote complète et screener" },
   { label: "Classement", to: "/classement", hint: "Investisseurs" },
