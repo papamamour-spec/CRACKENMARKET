@@ -16,6 +16,7 @@ import { LandingPage } from "./pages/LandingPage";
 import { LeaderboardPage } from "./pages/LeaderboardPage";
 import { NewsPage } from "./pages/NewsPage";
 import { ForecastsPage } from "./pages/ForecastsPage";
+import { HoldingsPage } from "./pages/HoldingsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { AccountPage } from "./pages/AccountPage";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
@@ -60,6 +61,7 @@ export function App() {
             <Route path="/marche" element={<MarketPage />} />
             <Route path="/valeur/:symbol" element={<InstrumentPage />} />
             <Route path="/conseiller" element={<AdvisorPage />} />
+            <Route path="/mon-portefeuille" element={<HoldingsPage />} />
             <Route path="/portefeuille" element={<PortfolioPage />} />
             <Route path="/alertes" element={<AlertsPage />} />
             <Route path="/backtest" element={<BacktestPage />} />

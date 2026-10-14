@@ -322,6 +322,23 @@ function migrate(d: DB): void {
       UNIQUE (symbol, horizon, made_day)
     );
     CREATE INDEX IF NOT EXISTS idx_forecast_log_open ON forecast_log(resolved_at, made_at);
+    CREATE TABLE IF NOT EXISTS held_portfolios (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT,
+      cash REAL NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS held_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      avg_price REAL,
+      acquired_at INTEGER,
+      note TEXT,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (user_id, symbol)
+    );
     CREATE TABLE IF NOT EXISTS model_params (
       symbol TEXT NOT NULL,
       horizon TEXT NOT NULL,

@@ -6,6 +6,7 @@ import { fmtNum, fmtPct, signClass } from "../lib/format";
 const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Accueil", to: "/", hint: "Vos conseils du jour" },
   { label: "Mes conseils", to: "/conseiller", hint: "Recommandations et diagnostic" },
+  { label: "Analyser mon portefeuille", to: "/mon-portefeuille", hint: "Saisir mes titres et obtenir des recommandations" },
   { label: "Demander un conseil", to: "/conseil", hint: "Nouvelle demande de placement" },
   { label: "Portefeuille", to: "/portefeuille", hint: "Positions et ordres" },
   { label: "Performance", to: "/performance", hint: "Courbe et statistiques" },

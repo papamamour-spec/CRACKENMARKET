@@ -46,6 +46,7 @@ export function Layout() {
       items: [
         { to: "/", label: "Accueil", icon: "⌂" },
         { to: "/conseiller", label: "Mes conseils", icon: "✦" },
+        { to: "/mon-portefeuille", label: "Analyser mon portefeuille", icon: "◈" },
         { to: "/conseil", label: role === "sgi" ? "Placements clients" : "Demander un conseil", icon: "✎" },
         { to: "/conseil/analyste", label: "Revue analyste", icon: "☑", roles: ["analyst", "admin"] },
       ],
