@@ -85,3 +85,27 @@ describe("optimiseur dans le conseil", () => {
     expect(r.warnings.some((x) => x.includes("hors de portée"))).toBe(true);
   });
 });
+
+describe("poche obligataire du conseil", () => {
+  it("réserve une part obligataire selon le profil et la chiffre", async () => {
+    const { BondService } = await import("../src/services/bonds.js");
+    const db = openMemoryDb();
+    const svc = new AdvisoryService(db, market, advisor);
+    svc.attachBonds(new BondService(db));
+    const r = svc.generateReport({ capital: 20_000_000, objective: "income", horizonMonths: 48, riskTolerance: 2 });
+    expect(r.bonds.targetSharePct).toBeGreaterThanOrEqual(40);
+    expect(r.bonds.lines.length).toBeGreaterThan(0);
+    expect(r.bonds.lines.length).toBeLessThanOrEqual(4);
+    expect(r.bonds.amount).toBeGreaterThan(5_000_000);
+    expect(r.bonds.avgYieldPct).toBeGreaterThan(3);
+    expect(r.bonds.annualCoupons).toBeGreaterThan(0);
+    expect(r.investable + r.bonds.amount + r.cashReserve).toBeCloseTo(20_000_000, -1);
+    for (const l of r.bonds.lines) expect(l.quantity * (l.price + l.accrued)).toBeCloseTo(l.amount, -1);
+    expect(r.scenarios.pessimistic).toBeLessThanOrEqual(r.scenarios.central);
+    expect(r.summary.some((x) => x.startsWith("Poche obligataire"))).toBe(true);
+    // part demandée explicitement nulle : aucune obligation
+    const none = svc.generateReport({ capital: 20_000_000, objective: "income", horizonMonths: 48, riskTolerance: 2, bondSharePct: 0 });
+    expect(none.bonds.lines).toHaveLength(0);
+    expect(none.bonds.amount).toBe(0);
+  });
+});

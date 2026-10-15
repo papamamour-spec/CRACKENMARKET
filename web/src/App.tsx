@@ -17,6 +17,7 @@ import { LeaderboardPage } from "./pages/LeaderboardPage";
 import { NewsPage } from "./pages/NewsPage";
 import { ForecastsPage } from "./pages/ForecastsPage";
 import { HoldingsPage } from "./pages/HoldingsPage";
+import { BondsPage } from "./pages/BondsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { AccountPage } from "./pages/AccountPage";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
@@ -70,6 +71,7 @@ export function App() {
             <Route path="/investisseur/:id" element={<PublicProfilePage />} />
             <Route path="/actualites" element={<NewsPage />} />
             <Route path="/previsions" element={<ForecastsPage />} />
+            <Route path="/obligations" element={<BondsPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/compte" element={<AccountPage />} />
             <Route path="/conseil" element={<AdvisoryRequestPage />} />

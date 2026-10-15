@@ -64,6 +64,7 @@ export function Layout() {
       title: "Marché",
       items: [
         { to: "/previsions", label: "Prévisions", icon: "◎" },
+        { to: "/obligations", label: "Obligations", icon: "▣" },
         { to: "/actualites", label: "Signaux & agenda", icon: "◔" },
         { to: "/marche", label: "Cote & screener", icon: "≣" },
         { to: "/classement", label: "Classement", icon: "♛" },

@@ -5,9 +5,9 @@ import { SkeletonCard } from "../components/Skeleton";
 import { useMarket } from "../hooks/useMarket";
 import { api, del, post, put } from "../lib/api";
 import { fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
-import type { HeldPortfolio, HeldPosition, PortfolioAnalysis } from "../lib/types";
+import type { BondView, HeldPortfolio, HeldPosition, PortfolioAnalysis } from "../lib/types";
 
-const ACTION_CLASS: Record<string, string> = { renforcer: "buy", conserver: "hold", alléger: "reduce", vendre: "sell", initier: "strong-buy", diversifier: "hold", liquidités: "hold" };
+const ACTION_CLASS: Record<string, string> = { renforcer: "buy", conserver: "hold", alléger: "reduce", vendre: "sell", initier: "strong-buy", diversifier: "hold", liquidités: "hold", obligations: "buy" };
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 const PERIOD_LABEL: Record<string, string> = { "1D": "Veille", "1W": "1 sem.", "1M": "1 mois", "3M": "3 mois", "6M": "6 mois", YTD: "Année", "1Y": "1 an" };
 
@@ -19,6 +19,7 @@ export function HoldingsPage() {
   const nav = useNavigate();
   const symbols = Array.from(quotes.keys()).sort();
   const [saved, setSaved] = useState<HeldPortfolio | null>(null);
+  const [bonds, setBonds] = useState<BondView[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [cash, setCash] = useState("0");
   const [label, setLabel] = useState("");
@@ -35,6 +36,7 @@ export function HoldingsPage() {
     setLabel(p.label ?? "");
   };
   useEffect(() => {
+    api<{ items: BondView[] }>("/market/bonds").then((r) => setBonds(r.items)).catch(() => {});
     api<HeldPortfolio>("/holdings").then((p) => {
       fromSaved(p);
       if (p.positions.length) {
@@ -108,7 +110,7 @@ export function HoldingsPage() {
         </div>
         <div className="row">
           {!editing && <button className="btn" onClick={() => setEditing(true)}>Modifier le portefeuille</button>}
-          {a && a.lines.length > 0 && <button className="btn primary" onClick={toAdvisory}>Demander un conseil avec ce portefeuille</button>}
+          {a && (a.lines.length > 0 || a.bondLines.length > 0) && <button className="btn primary" onClick={toAdvisory}>Demander un conseil avec ce portefeuille</button>}
         </div>
       </div>
 
@@ -127,13 +129,20 @@ export function HoldingsPage() {
             <tbody>
               {rows.map((r, i) => {
                 const q = quotes.get(r.symbol);
+                const bond = bonds.find((b) => b.code === r.symbol);
+                const px = q ? q.price : bond ? bond.quote.price + bond.analytics.accrued : null;
                 return (
                   <tr key={i}>
-                    <td className="left"><select value={r.symbol} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, symbol: e.target.value } : x)))} style={{ width: 240 }}>{symbols.map((s) => <option key={s} value={s}>{s} · {quotes.get(s)?.name}</option>)}</select></td>
+                    <td className="left">
+                      <select value={r.symbol} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, symbol: e.target.value } : x)))} style={{ width: 260 }}>
+                        <optgroup label="Actions">{symbols.map((s) => <option key={s} value={s}>{s} · {quotes.get(s)?.name}</option>)}</optgroup>
+                        <optgroup label="Obligations">{bonds.map((b) => <option key={b.code} value={b.code}>{b.code} · {b.name}</option>)}</optgroup>
+                      </select>
+                    </td>
                     <td><input type="number" min={1} value={r.quantity} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, quantity: e.target.value } : x)))} style={{ width: 110, textAlign: "right" }} placeholder="0" /></td>
                     <td><input type="number" min={0} value={r.avgPrice} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, avgPrice: e.target.value } : x)))} style={{ width: 130, textAlign: "right" }} placeholder="—" /></td>
-                    <td className="mono muted">{q ? fmtNum(q.price) : "—"}</td>
-                    <td className="mono">{q && Number(r.quantity) > 0 ? fmtNum(q.price * Number(r.quantity)) : "—"}</td>
+                    <td className="mono muted">{px != null ? fmtNum(px) : "—"}{bond && <><br /><small>coupon couru inclus</small></>}</td>
+                    <td className="mono">{px != null && Number(r.quantity) > 0 ? fmtNum(px * Number(r.quantity)) : "—"}</td>
                     <td><button className="btn sm" onClick={() => removeLine(r.symbol)}>✕</button></td>
                   </tr>
                 );
@@ -141,14 +150,15 @@ export function HoldingsPage() {
             </tbody>
           </table>
           <div className="row" style={{ marginTop: 8 }}>
-            <button className="btn sm" onClick={addRow}>+ Ajouter une ligne</button>
+            <button className="btn sm" onClick={addRow}>+ Ajouter une action</button>
+            <button className="btn sm" onClick={() => setRows([...rows, { symbol: bonds.find((b) => !rows.some((r) => r.symbol === b.code))?.code ?? bonds[0]?.code ?? "", quantity: "", avgPrice: "" }])} disabled={!bonds.length}>+ Ajouter une obligation</button>
             <span className="spacer" />
             <button className="btn" disabled={busy || !rows.length} onClick={() => run(false)}>Analyser sans enregistrer</button>
             <button className="btn primary" disabled={busy} onClick={() => run(true)}>Enregistrer et analyser</button>
           </div>
           <details style={{ marginTop: 10 }}>
             <summary style={{ cursor: "pointer", fontSize: 13 }}>Importer un relevé (copier-coller : une ligne par valeur, « SYMBOLE ; quantité ; PRU »)</summary>
-            <textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={5} style={{ width: "100%", marginTop: 6, fontFamily: "inherit" }} placeholder={"SNTS ; 100 ; 21500\nOrange Côte d'Ivoire ; 40 ; 13000\nSGBC 25"} />
+            <textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={5} style={{ width: "100%", marginTop: 6, fontFamily: "inherit" }} placeholder={"SNTS ; 100 ; 21500\nOrange Côte d'Ivoire ; 40 ; 13000\nTPCI.O30 ; 200 ; 9900\nSGBC 25"} />
             <button className="btn sm" style={{ marginTop: 6 }} disabled={busy} onClick={doImport}>Importer ces lignes</button>
           </details>
           {msg && <div className={msg.ok ? "success" : "error"}>{msg.text}</div>}
@@ -157,12 +167,12 @@ export function HoldingsPage() {
       {!editing && msg && <div className={msg.ok ? "success" : "error"}>{msg.text}</div>}
 
       {busy && !a && <SkeletonCard lines={8} />}
-      {a && a.lines.length > 0 && (
+      {a && (a.lines.length > 0 || a.bondLines.length > 0) && (
         <>
           <div className="card grid grid-3">
-            <div className="kpi"><span className="label">Valeur totale</span><span className="value">{fmtFcfa(a.totals.total)}</span><span className="sub muted">{fmtFcfa(a.totals.invested)} en titres · {fmtFcfa(a.totals.cash)} de liquidités ({a.totals.cashPct} %)</span></div>
+            <div className="kpi"><span className="label">Valeur totale</span><span className="value">{fmtFcfa(a.totals.total)}</span><span className="sub muted">actions {a.assetClasses.equitiesPct} % · obligations {a.assetClasses.bondsPct} % · liquidités {a.assetClasses.cashPct} %</span><div className="classbar" title={`Actions ${a.assetClasses.equitiesPct} %, obligations ${a.assetClasses.bondsPct} %, liquidités ${a.assetClasses.cashPct} %`}><span className="eq" style={{ width: `${a.assetClasses.equitiesPct}%` }} /><span className="bd" style={{ width: `${a.assetClasses.bondsPct}%` }} /><span className="cs" style={{ width: `${a.assetClasses.cashPct}%` }} /></div></div>
             <div className="kpi"><span className="label">Plus ou moins-value latente</span><span className={`value ${signClass(a.totals.pnl ?? 0)}`}>{a.totals.pnl != null ? `${a.totals.pnl > 0 ? "+" : ""}${fmtFcfa(a.totals.pnl)}` : "—"}</span><span className="sub muted">{a.totals.pnlPct != null ? `${fmtPct(a.totals.pnlPct, 1)} sur un coût de ${fmtFcfa(a.totals.cost ?? 0)}` : "renseignez les prix de revient pour la calculer"}</span></div>
-            <div className="kpi"><span className="label">Dividendes attendus</span><span className="value up">{fmtFcfa(a.totals.annualDividendIncome)}</span><span className="sub muted">par an · {a.totals.dividendYieldPct} % des titres</span></div>
+            <div className="kpi"><span className="label">Revenus annuels attendus</span><span className="value up">{fmtFcfa(a.totals.annualIncome)}</span><span className="sub muted">dividendes {fmtFcfa(a.totals.annualDividendIncome)} ({a.totals.dividendYieldPct} %) · coupons {fmtFcfa(a.totals.annualCouponIncome)}{a.bondSleeve.avgYieldPct != null ? ` (rdt actuariel ${a.bondSleeve.avgYieldPct} %, duration ${a.bondSleeve.durationYears})` : ""}</span></div>
             <div className="kpi"><span className="label">Santé du portefeuille</span><div className="gauge"><ScoreBar value={a.diagnostic.healthScore} positive /><span className="mono" style={{ width: 26 }}>{a.diagnostic.healthScore}</span></div><span className="sub muted">diversification {a.diagnostic.diversificationScore}/100 · risque {a.diagnostic.riskScore}/100 · profil {a.profileStyle}</span></div>
             <div className="kpi"><span className="label">Prévision Kraken</span><span className={`value ${signClass(a.forecast.expected3MPct)}`}>{fmtPct(a.forecast.expected3MPct, 1)} à 3 mois</span><span className="sub muted">{fmtPct(a.forecast.expected1MPct, 1)} à 1 mois · probabilité de hausse {Math.round(a.forecast.probUp3M * 100)} % · ≈ {a.forecast.amount3M > 0 ? "+" : ""}{fmtFcfa(a.forecast.amount3M)}</span></div>
             <div className="kpi"><span className="label">Risque</span><span className="value">{a.risk.volatilityPct} % <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>vol. annuelle</span></span><span className="sub muted">{a.risk.beta != null ? `bêta ${a.risk.beta} · ` : ""}perte max. 1 an {a.risk.maxDrawdown1yPct} % · VaR 95 % 1 mois {fmtFcfa(a.risk.var95_1m)} · {a.risk.concentrationLabel}</span></div>
@@ -231,6 +241,62 @@ export function HoldingsPage() {
             </div>
           </div>
 
+          {(a.bondLines.length > 0 || a.bondSleeve.suggestions.length > 0) && (
+            <div className="card">
+              <div className="card-head">
+                <div><h2>Obligations</h2><span className="muted" style={{ fontSize: 12 }}>{a.bondSleeve.verdict}</span></div>
+                <Link to="/obligations" className="btn sm">Voir le compartiment obligataire</Link>
+              </div>
+              {a.bondLines.length > 0 && (
+                <div className="table-scroll">
+                  <table>
+                    <thead><tr><th className="left">Obligation</th><th>Qté</th><th>PRU</th><th>Cours</th><th>Couru</th><th>Valeur</th><th>+/- value</th><th>Poids</th><th>Coupon</th><th>Rdt act.</th><th>Duration</th><th>Échéance</th><th>Prochain coupon</th><th className="left">Action proposée</th></tr></thead>
+                    <tbody>
+                      {a.bondLines.map((l) => (
+                        <tr key={l.code}>
+                          <td><span className="sym">{l.code}<small>{l.issuer}{l.taxExempt ? " · exonérée" : ""}</small></span></td>
+                          <td className="mono">{l.quantity}</td>
+                          <td className="mono muted">{l.avgPrice != null ? fmtNum(l.avgPrice) : "—"}</td>
+                          <td className="mono">{fmtNum(l.price)}</td>
+                          <td className="mono muted">{fmtNum(l.accrued)}</td>
+                          <td className="mono">{fmtNum(l.value)}</td>
+                          <td className={`mono ${l.pnl != null ? signClass(l.pnl) : "muted"}`}>{l.pnl != null ? `${l.pnl > 0 ? "+" : ""}${fmtNum(l.pnl)}` : "—"}</td>
+                          <td className="mono">{l.weightPct} %</td>
+                          <td className="mono">{l.couponPct.toFixed(2)} %</td>
+                          <td className="mono"><b>{l.ytmPct.toFixed(2)} %</b></td>
+                          <td className="mono">{l.durationYears.toFixed(1)}</td>
+                          <td className="mono muted">{l.maturityDate.slice(0, 7)} · {l.remainingYears.toFixed(1)} ans</td>
+                          <td className="mono muted">{l.nextCoupon ? `${new Date(l.nextCoupon.date).toLocaleDateString("fr-FR")} · ${fmtNum(l.nextCoupon.amount)}` : "—"}</td>
+                          <td className="left"><span className={`badge ${ACTION_CLASS[l.action.kind]}`}>{l.action.kind}{l.action.quantity > 0 ? ` ${l.action.quantity}` : ""}</span><div className="muted" style={{ fontSize: 11, whiteSpace: "normal", maxWidth: 340 }}>{l.action.reasons.slice(0, 2).join(" · ")}</div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="grid grid-2" style={{ gap: 14, marginTop: 10 }}>
+                {a.incomeCalendar.length > 0 && (
+                  <div>
+                    <h4>Coupons et remboursements à 12 mois · {fmtFcfa(a.incomeCalendar.reduce((s, x) => s + x.amount, 0))}</h4>
+                    <table>
+                      <tbody>{a.incomeCalendar.slice(0, 12).map((x, i) => <tr key={i}><td className="left mono">{new Date(x.date).toLocaleDateString("fr-FR")}</td><td className="left">{x.code}</td><td className="left muted">{x.kind}</td><td className="mono">{fmtNum(x.amount)}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                )}
+                {a.bondSleeve.suggestions.length > 0 && (
+                  <div>
+                    <h4>Suggestions pour {a.bondSleeve.gapAmount > 0 ? `atteindre ${a.bondSleeve.targetPct} % d'obligations` : "la poche obligataire"}</h4>
+                    <table>
+                      <thead><tr><th className="left">Obligation</th><th>Rdt act.</th><th>Échéance</th><th>Qté</th><th>Montant</th></tr></thead>
+                      <tbody>{a.bondSleeve.suggestions.map((b) => <tr key={b.code}><td><span className="sym">{b.code}<small>{b.issuer}</small></span></td><td className="mono">{b.ytmPct.toFixed(2)} %</td><td className="mono muted">{b.maturityDate.slice(0, 4)}</td><td className="mono">{b.quantity}</td><td className="mono">{fmtNum(b.amount)}</td></tr>)}</tbody>
+                    </table>
+                    <p className="muted" style={{ fontSize: 11 }}>Sélection par rendement actuariel corrigé du risque émetteur, échéances compatibles avec votre horizon, au plus 40 % par émetteur.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {a.target && (
             <div className="card">
               <div className="card-head">
@@ -254,7 +320,7 @@ export function HoldingsPage() {
           )}
         </>
       )}
-      {a && a.lines.length === 0 && <div className="card"><p className="muted">{a.summary[0]}</p></div>}
+      {a && a.lines.length === 0 && a.bondLines.length === 0 && <div className="card"><p className="muted">{a.summary[0]}</p></div>}
     </div>
   );
 }

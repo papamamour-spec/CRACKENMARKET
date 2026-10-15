@@ -10,6 +10,7 @@ import type { NewsService } from "./news.js";
 import type { ForecastService } from "./forecast.js";
 import { optimize, type OptimizationResult } from "../engine/optimizer.js";
 import type { Forecast } from "../engine/forecast.js";
+import { targetBondSharePct, type BondAllocationLine, type BondService } from "./bonds.js";
 
 /** Taux sans risque annuel de référence (obligations d'État UEMOA, indicatif) : RISK_FREE_RATE=0.06 */
 export const RISK_FREE_RATE = Number(process.env.RISK_FREE_RATE ?? 0.06);
@@ -41,6 +42,19 @@ export interface AdvisoryInput {
   maxWeightPct?: number;
   excludedSectors?: string[];
   excludedSymbols?: string[];
+  /** Part du capital à placer en obligations (%) ; absent = selon le profil, 0 = aucune */
+  bondSharePct?: number;
+}
+
+export interface BondSleeve {
+  targetSharePct: number;
+  sharePct: number;
+  amount: number;
+  lines: BondAllocationLine[];
+  annualCoupons: number;
+  avgYieldPct: number;
+  avgDurationYears: number;
+  rationale: string[];
 }
 
 export interface LineForecast {
@@ -109,6 +123,8 @@ export interface AdvisoryReport {
   optimization: OptimizationSummary;
   /** Prévisions probabilistes des valeurs retenues */
   forecasts: LineForecast[];
+  /** Poche obligataire (emprunts d'État, BOAD, entreprises) */
+  bonds: BondSleeve;
   summary: string[];
   warnings: string[];
 }
@@ -145,6 +161,7 @@ export interface AdvisoryView extends Omit<AdvisoryRequest, "report" | "preferre
 
 const r0 = (v: number) => Math.round(v);
 const r1 = (v: number) => Math.round(v * 10) / 10;
+const r2 = (v: number) => Math.round(v * 100) / 100;
 
 /**
  * Guichet de conseil en investissement : un client ou une SGI (pour le compte d'un de ses
@@ -154,6 +171,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 export class AdvisoryService extends EventEmitter {
   private newsService: NewsService | null = null;
   private forecasts: ForecastService | null = null;
+  private bonds: BondService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -169,6 +187,10 @@ export class AdvisoryService extends EventEmitter {
 
   attachForecasts(fc: ForecastService): void {
     this.forecasts = fc;
+  }
+
+  attachBonds(b: BondService): void {
+    this.bonds = b;
   }
 
   /**
@@ -212,8 +234,11 @@ export class AdvisoryService extends EventEmitter {
     const existingValue = positions.reduce((a, p) => a + p.quantity * p.currentPrice, 0);
     const tol = profile.effectiveRiskTolerance;
     const market = this.newsService?.marketSentiment() ?? { score: 0, count: 0, headlines: [] };
+    // Part obligataire cible : selon le profil (ou demandée) ; elle assure la fonction défensive, la réserve de liquidités est alors ramenée à 10–15 %
+    const targetBondShare = input.bondSharePct != null ? Math.max(0, Math.min(80, input.bondSharePct)) : targetBondSharePct(tol, declared.objective, declared.horizonMonths);
+    const baseReserve = tol >= 4 ? 10 : tol >= 3 ? 15 : 30;
     // actualité de place défavorable : réserve de liquidités relevée de 5 points
-    const cashReservePct = (tol >= 4 ? 10 : tol >= 3 ? 15 : 30) + (market.score <= -0.2 ? 5 : 0);
+    const cashReservePct = (targetBondShare > 0 && this.bonds ? Math.max(10, baseReserve - targetBondShare / 2) : baseReserve) + (market.score <= -0.2 ? 5 : 0);
 
     // ---- Optimisation moyenne-variance sous contraintes ----
     const fcMap = this.forecasts?.all() ?? new Map<string, Forecast>();
@@ -222,7 +247,16 @@ export class AdvisoryService extends EventEmitter {
     const maxLines = Math.max(2, Math.min(15, Math.round(input.maxLines ?? (tol >= 4 ? 6 : 8))));
     const maxWeight = Math.max(5, Math.min(60, input.maxWeightPct ?? 25)) / 100;
     const maxSectorWeight = Math.min(1, Math.max(maxWeight, tol >= 4 ? 0.6 : 0.45));
-    const investedMax = 1 - cashReservePct / 100;
+    // ---- Poche obligataire : part cible selon le profil (ou demandée), sélection d'émissions ----
+    const existingBonds = (input.holdings ?? []).filter((h) => this.bonds?.has(h.symbol)).reduce((a, h) => {
+      const v = this.bonds!.view(h.symbol)!;
+      return a + h.quantity * (v.quote.price + v.analytics.accrued);
+    }, 0);
+    const bondBudget = Math.max(0, (input.capital * targetBondShare) / 100 - existingBonds);
+    const bondLines = this.bonds && bondBudget > 20_000 ? this.bonds.suggest(bondBudget, declared.horizonMonths, 4, input.excludedSymbols?.map((x) => x.toUpperCase()), tol) : [];
+    const bondAmount = bondLines.reduce((a, l) => a + l.amount, 0);
+    const bondShare = input.capital ? (bondAmount / input.capital) * 100 : 0;
+    const investedMax = Math.max(0.05, 1 - cashReservePct / 100 - bondShare / 100);
     const universe = recs.filter((r) => r.action !== "VENTE" && r.action !== "ÉVITER" && r.fitScore >= 30 && !excludedSectors.includes(r.sector) && !excludedSymbols.includes(r.symbol));
     const returnsBySymbol = new Map<string, number[]>();
     for (const r of universe) {
@@ -280,7 +314,7 @@ export class AdvisoryService extends EventEmitter {
       return [{ symbol: l.symbol, expectedReturn3MPct: h.expectedReturnPct, probUp3M: h.probUp, hitRate3M: h.accuracy.hitRate, p5: h.quantiles.p5, p95: h.quantiles.p95, explanation: h.explanations[0] ?? null }];
     });
     const invested = allocation.reduce((a, l) => a + l.amount, 0);
-    const cashReserve = input.capital - invested;
+    const cashReserve = input.capital - invested - bondAmount;
     const sectors = new Map<string, number>();
     for (const l of allocation) sectors.set(l.sector, (sectors.get(l.sector) ?? 0) + l.amount);
     const sectorBreakdown = [...sectors.entries()].map(([sector, v]) => ({ sector, weightPct: r1(invested ? (v / invested) * 100 : 0) })).sort((a, b) => b.weightPct - a.weightPct);
@@ -297,11 +331,17 @@ export class AdvisoryService extends EventEmitter {
     const vol = usedOpt && opt!.invested > 0 ? opt!.volatility / opt!.invested : allocation.reduce((a, l) => a + (INSTRUMENT_MAP.get(l.symbol)?.volatility ?? 0.3) * w(l), 0) * 0.8; // diversification ≈ -20 %
     const maxLine = allocation.reduce((a, l) => Math.max(a, l.weightPct), 0);
     const horizonVol = vol * Math.sqrt(Math.max(0.25, horizonYears));
-    const central = invested * (1 + expectedReturn / 100) + cashReserve;
+    const bondYield = bondAmount ? bondLines.reduce((a, l) => a + l.ytmPct * l.amount, 0) / bondAmount : 0;
+    const bondDuration = bondAmount ? bondLines.reduce((a, l) => a + l.durationYears * l.amount, 0) / bondAmount : 0;
+    const bondHorizonReturn = (Math.pow(1 + bondYield / 100, horizonYears) - 1) * 100;
+    const bondsAtHorizon = bondAmount * (1 + bondHorizonReturn / 100);
+    const central = invested * (1 + expectedReturn / 100) + bondsAtHorizon + cashReserve;
+    // obligations : fourchette étroite (± duration × 1 point de taux, bornée)
+    const bondSwing = bondAmount * Math.min(0.15, bondDuration * 0.01);
     const scenarios = {
-      pessimistic: r0(Math.max(invested * 0.4, invested * (1 + expectedReturn / 100 - horizonVol)) + cashReserve),
+      pessimistic: r0(Math.max(invested * 0.4, invested * (1 + expectedReturn / 100 - horizonVol)) + bondsAtHorizon - bondSwing + cashReserve),
       central: r0(central),
-      optimistic: r0(invested * (1 + expectedReturn / 100 + horizonVol) + cashReserve),
+      optimistic: r0(invested * (1 + expectedReturn / 100 + horizonVol) + bondsAtHorizon + bondSwing + cashReserve),
       horizonMonths: declared.horizonMonths,
     };
 
@@ -314,7 +354,9 @@ export class AdvisoryService extends EventEmitter {
     const summary: string[] = [];
     const warnings: string[] = [];
     const objectiveLabel = { income: "de revenus réguliers", growth: "de croissance du capital", balanced: "équilibré revenus / croissance", speculative: "de plus-values rapides" }[declared.objective];
-    summary.push(`Profil ${profile.style.toLowerCase()} avec un objectif ${objectiveLabel} sur ${declared.horizonMonths} mois : ${allocation.length} valeurs sur ${sectorBreakdown.length} secteur(s), ${r0((invested / input.capital) * 100)} % investis et ${r0(cashReservePct)} % de réserve de liquidités recommandée.`);
+    summary.push(`Profil ${profile.style.toLowerCase()} avec un objectif ${objectiveLabel} sur ${declared.horizonMonths} mois : ${allocation.length} action(s) sur ${sectorBreakdown.length} secteur(s) (${r0((invested / input.capital) * 100)} %)${bondLines.length ? `, ${bondLines.length} obligation(s) (${r0(bondShare)} %)` : ""} et ${r0(cashReservePct)} % de réserve de liquidités recommandée.`);
+    if (bondLines.length) summary.push(`Poche obligataire ${r0(bondAmount).toLocaleString("fr-FR")} FCFA : rendement actuariel moyen ${r2(bondYield)} %, duration ${r1(bondDuration)} ans, ${r0(bondLines.reduce((a, l) => a + l.annualCoupon, 0)).toLocaleString("fr-FR")} FCFA de coupons par an ; ${bondLines.every((l) => l.taxExempt) ? "emprunts d'État exonérés d'impôt" : bondLines.some((l) => l.taxExempt) ? "en partie exonérée d'impôt" : "soumise à l'impôt sur les revenus de valeurs mobilières"}.`);
+    else if (targetBondShare > 0 && input.bondSharePct !== 0) warnings.push(`Aucune obligation retenue (budget obligataire ${r0(bondBudget).toLocaleString("fr-FR")} FCFA insuffisant ou aucune émission d'échéance compatible) : la part prévue est laissée en liquidités.`);
     if (allocation.length) summary.push(`Rendement de dividende attendu ${r1(divYield)} % par an (≈ ${r0((invested * divYield) / 100).toLocaleString("fr-FR")} FCFA), performance visée ${r1(expectedReturn)} % sur l'horizon (${r1(annualized)} % annualisé), volatilité estimée ${r0(vol * 100)} %.`);
     const top = allocation[0];
     const topFc = top ? fcMap.get(top.symbol) : undefined;
@@ -386,6 +428,18 @@ export class AdvisoryService extends EventEmitter {
       newsContext: { marketSentiment: market.score, marketCount: market.count, headlines: market.headlines },
       optimization,
       forecasts: forecastsOut,
+      bonds: {
+        targetSharePct: targetBondShare,
+        sharePct: r1(bondShare),
+        amount: r0(bondAmount),
+        lines: bondLines,
+        annualCoupons: r0(bondLines.reduce((a, l) => a + l.annualCoupon, 0)),
+        avgYieldPct: r2(bondYield),
+        avgDurationYears: r2(bondDuration),
+        rationale: bondLines.length
+          ? [`Part obligataire ${input.bondSharePct != null ? "demandée" : "recommandée pour votre profil"} : ${targetBondShare} % du capital.`, "Sélection par rendement actuariel corrigé du risque émetteur, échéances compatibles avec l'horizon, au plus 40 % par émetteur.", "Les obligations stabilisent le portefeuille (revenu fixe, remboursement du capital) ; leur cours varie avec les taux (duration)."]
+          : [],
+      },
       summary,
       warnings,
     };

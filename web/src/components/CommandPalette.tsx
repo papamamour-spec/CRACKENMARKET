@@ -11,6 +11,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Portefeuille", to: "/portefeuille", hint: "Positions et ordres" },
   { label: "Performance", to: "/performance", hint: "Courbe et statistiques" },
   { label: "Prévisions", to: "/previsions", hint: "Rendements attendus, probabilités, précision" },
+  { label: "Obligations", to: "/obligations", hint: "Emprunts d'État, BOAD, entreprises : rendement, duration, échéancier" },
   { label: "Signaux & agenda", to: "/actualites", hint: "Actualité, signaux, événements" },
   { label: "Marché", to: "/marche", hint: "Cote complète et screener" },
   { label: "Classement", to: "/classement", hint: "Investisseurs" },

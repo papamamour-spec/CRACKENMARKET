@@ -443,6 +443,7 @@ export interface AdvisoryReport {
   newsContext?: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
   optimization?: OptimizationSummary;
   forecasts?: LineForecast[];
+  bonds?: BondSleeve;
   summary: string[];
   warnings: string[];
 }
@@ -577,15 +578,39 @@ export interface AnalysisLine {
 export interface PortfolioAnalysis {
   generatedAt: number;
   profileStyle: string;
-  totals: { invested: number; cost: number | null; pnl: number | null; pnlPct: number | null; cash: number; total: number; cashPct: number; annualDividendIncome: number; dividendYieldPct: number; lines: number; sectors: number };
+  totals: { invested: number; cost: number | null; pnl: number | null; pnlPct: number | null; cash: number; total: number; cashPct: number; annualDividendIncome: number; dividendYieldPct: number; lines: number; sectors: number; bondsValue: number; annualCouponIncome: number; annualIncome: number };
   lines: AnalysisLine[];
+  bondLines: BondLine[];
+  assetClasses: { equitiesPct: number; bondsPct: number; cashPct: number };
+  bondSleeve: { currentPct: number; targetPct: number; gapAmount: number; avgYieldPct: number | null; durationYears: number | null; suggestions: BondAllocationLine[]; verdict: string };
+  incomeCalendar: { date: number; code: string; kind: "coupon" | "remboursement"; amount: number }[];
   unknownSymbols: string[];
   diagnostic: Diagnostic;
   risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; topWeightPct: number; hhi: number; concentrationLabel: string };
   forecast: { expected1MPct: number; expected3MPct: number; probUp1M: number; probUp3M: number; amount1M: number; amount3M: number };
   performance: { portfolioPct: Record<string, number | null>; indexPct: Record<string, number | null> };
   target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[]; keep: { symbol: string; weightPct: number }[] } | null;
-  actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" }[];
+  actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" | "obligations" }[];
   summary: string[];
   warnings: string[];
 }
+
+// ---- Obligations ----
+export type IssuerType = "souverain" | "supranational" | "entreprise";
+export interface BondView {
+  code: string; name: string; issuer: string; issuerType: IssuerType; country: string; couponPct: number; issueDate: string; maturityDate: string; nominal: number; frequency: number; amortization: "in_fine" | "constant" | "annuite"; graceYears: number; taxExempt: boolean; active: boolean;
+  quote: { code: string; price: number; ytmPct: number; changePct: number; ts: number; source: "simulation" | "manuel" };
+  analytics: { cleanPrice: number; dirtyPrice: number; accrued: number; ytmPct: number; currentYieldPct: number; macaulayYears: number; modifiedDuration: number; convexity: number; dv01: number; remainingYears: number; outstanding: number; annualCoupon: number; nextCoupon: { date: number; amount: number } | null; nextPrincipal: { date: number; amount: number } | null };
+}
+export interface BondDetail extends BondView {
+  schedule: { date: number; coupon: number; principal: number; outstandingAfter: number }[];
+  flows: { date: number; years: number; coupon: number; principal: number; outstandingAfter: number }[];
+}
+export interface BondAllocationLine { code: string; name: string; issuer: string; issuerType: IssuerType; price: number; accrued: number; quantity: number; amount: number; weightPct: number; couponPct: number; ytmPct: number; durationYears: number; remainingYears: number; maturityDate: string; annualCoupon: number; taxExempt: boolean; rationale: string }
+export interface BondSleeve { targetSharePct: number; sharePct: number; amount: number; lines: BondAllocationLine[]; annualCoupons: number; avgYieldPct: number; avgDurationYears: number; rationale: string[] }
+export interface BondLine {
+  code: string; name: string; issuer: string; issuerType: string; quantity: number; avgPrice: number | null; price: number; accrued: number; value: number; cost: number | null; pnl: number | null; weightPct: number; couponPct: number; ytmPct: number; currentYieldPct: number; durationYears: number; remainingYears: number; maturityDate: string; outstanding: number; nextCoupon: { date: number; amount: number } | null; annualCoupon: number; taxExempt: boolean; perf1M: number | null;
+  action: { kind: LineAction; quantity: number; amount: number; reasons: string[] };
+}
+export const ISSUER_LABEL: Record<IssuerType, string> = { souverain: "État", supranational: "Supranational", entreprise: "Entreprise" };
+export const AMORT_LABEL: Record<string, string> = { in_fine: "In fine", constant: "Amortissement constant", annuite: "Annuités constantes" };

@@ -19,7 +19,7 @@ export function AdvisoryRequestPage() {
   const isSgi = user?.role === "sgi";
   const [sectors, setSectors] = useState<string[]>([]);
   const [form, setForm] = useState({ capital: 5_000_000, objective: "balanced", horizonMonths: 36, riskTolerance: 3, preferredSectors: [] as string[], constraints: "", clientLabel: "" });
-  const [target, setTarget] = useState({ targetYieldPct: 0, maxLines: 8, maxWeightPct: 25, excludedSectors: [] as string[] });
+  const [target, setTarget] = useState({ targetYieldPct: 0, maxLines: 8, maxWeightPct: 25, excludedSectors: [] as string[], bondSharePct: -1 });
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [newHolding, setNewHolding] = useState<{ symbol: string; quantity: number }>({ symbol: "SNTS", quantity: 100 });
   const [preview, setPreview] = useState<AdvisoryReport | null>(null);
@@ -50,7 +50,7 @@ export function AdvisoryRequestPage() {
     setHoldings(p.positions.map((x) => ({ symbol: x.symbol, quantity: x.quantity, avgPrice: x.avgPrice ?? undefined })));
   };
 
-  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors });
+  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors, bondSharePct: target.bondSharePct >= 0 ? target.bondSharePct : undefined });
   const doPreview = async () => {
     setBusy(true);
     setMsg(null);
@@ -123,6 +123,7 @@ export function AdvisoryRequestPage() {
             <div className="grid grid-3" style={{ gap: 10 }}>
               <div className="field"><label>Rendement annuel visé : {target.targetYieldPct > 0 ? `${target.targetYieldPct} %` : "au mieux"}</label><div className="range"><span className="muted">0</span><input type="range" min={0} max={30} step={0.5} value={target.targetYieldPct} onChange={(e) => setTarget({ ...target, targetYieldPct: Number(e.target.value) })} /><span className="muted">30 %</span></div><span className="muted" style={{ fontSize: 11 }}>Dividendes inclus ; l'optimiseur cherche le portefeuille le moins volatil qui l'atteint.</span></div>
               <div className="field"><label>Nombre de lignes max. : {target.maxLines}</label><div className="range"><span className="muted">2</span><input type="range" min={2} max={15} value={target.maxLines} onChange={(e) => setTarget({ ...target, maxLines: Number(e.target.value) })} /><span className="muted">15</span></div></div>
+              <div className="field"><label>Part en obligations : {target.bondSharePct < 0 ? "selon mon profil" : `${target.bondSharePct} %`}</label><div className="range"><span className="muted">auto</span><input type="range" min={-1} max={70} step={1} value={target.bondSharePct} onChange={(e) => setTarget({ ...target, bondSharePct: Number(e.target.value) })} /><span className="muted">70 %</span></div><span className="muted" style={{ fontSize: 11 }}>Emprunts d'État UEMOA, BOAD, entreprises : revenu fixe et capital remboursé à l'échéance.</span></div>
               <div className="field"><label>Poids max. par valeur : {target.maxWeightPct} %</label><div className="range"><span className="muted">5</span><input type="range" min={5} max={60} step={5} value={target.maxWeightPct} onChange={(e) => setTarget({ ...target, maxWeightPct: Number(e.target.value) })} /><span className="muted">60</span></div></div>
             </div>
             <div className="field" style={{ marginBottom: 0 }}>

@@ -130,6 +130,41 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
           </div>
         </div>
       )}
+      {r.bonds && (r.bonds.lines.length > 0 || r.bonds.targetSharePct > 0) && (
+        <div style={{ marginTop: 14 }}>
+          <h3>Poche obligataire · {r.bonds.lines.length ? `${r.bonds.sharePct} % du capital (${fmtFcfa(r.bonds.amount)})` : `${r.bonds.targetSharePct} % prévus, aucune émission retenue`}</h3>
+          {r.bonds.lines.length > 0 && (
+            <>
+              <div className="grid grid-3" style={{ gap: 10 }}>
+                <div className="kpi"><span className="label">Rendement actuariel moyen</span><span className="value">{r.bonds.avgYieldPct} %</span><span className="sub muted">duration {r.bonds.avgDurationYears} ans</span></div>
+                <div className="kpi"><span className="label">Coupons attendus</span><span className="value up">{fmtFcfa(r.bonds.annualCoupons)}</span><span className="sub muted">par an</span></div>
+                <div className="kpi"><span className="label">Part recommandée</span><span className="value">{r.bonds.targetSharePct} %</span><span className="sub muted">{r.bonds.rationale[0]}</span></div>
+              </div>
+              <table style={{ marginTop: 8 }}>
+                <thead><tr><th className="left">Obligation</th><th className="left">Émetteur</th><th>Poids</th><th>Quantité</th><th>Cours + couru</th><th>Montant</th><th>Coupon</th><th>Rdt actuariel</th><th>Duration</th><th>Échéance</th>{!compact && <th className="left">Justification</th>}</tr></thead>
+                <tbody>
+                  {r.bonds.lines.map((l) => (
+                    <tr key={l.code}>
+                      <td><span className="sym">{l.code}<small>{l.name}</small></span></td>
+                      <td className="left muted">{l.issuer}{l.taxExempt ? " · exonérée" : ""}</td>
+                      <td className="mono">{l.weightPct} %</td>
+                      <td className="mono">{l.quantity}</td>
+                      <td className="mono">{fmtNum(l.price + l.accrued)}</td>
+                      <td className="mono">{fmtNum(l.amount)}</td>
+                      <td className="mono">{l.couponPct.toFixed(2)} %</td>
+                      <td className="mono"><b>{l.ytmPct.toFixed(2)} %</b></td>
+                      <td className="mono">{l.durationYears.toFixed(1)}</td>
+                      <td className="mono muted">{l.maturityDate.slice(0, 7)}</td>
+                      {!compact && <td className="left muted" style={{ whiteSpace: "normal", fontSize: 12, maxWidth: 320 }}>{l.rationale}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted" style={{ fontSize: 11 }}>{r.bonds.rationale.slice(1).join(" ")}</p>
+            </>
+          )}
+        </div>
+      )}
       {r.forecasts && r.forecasts.length > 0 && (
         <div style={{ marginTop: 14 }}>
           <h3>Prévisions à 3 mois des valeurs retenues</h3>
