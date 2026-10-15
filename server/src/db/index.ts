@@ -339,6 +339,24 @@ function migrate(d: DB): void {
       updated_at INTEGER NOT NULL,
       UNIQUE (user_id, symbol)
     );
+    CREATE TABLE IF NOT EXISTS bonds (
+      code TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      issuer TEXT NOT NULL,
+      issuer_type TEXT NOT NULL,        -- souverain | supranational | entreprise
+      country TEXT NOT NULL,
+      coupon_pct REAL NOT NULL,
+      issue_date TEXT NOT NULL,
+      maturity_date TEXT NOT NULL,
+      nominal REAL NOT NULL DEFAULT 10000,
+      frequency INTEGER NOT NULL DEFAULT 1,
+      amortization TEXT NOT NULL DEFAULT 'constant',
+      grace_years INTEGER NOT NULL DEFAULT 0,
+      tax_exempt INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      manual_price REAL,
+      manual_price_at INTEGER
+    );
     CREATE TABLE IF NOT EXISTS model_params (
       symbol TEXT NOT NULL,
       horizon TEXT NOT NULL,
@@ -347,6 +365,7 @@ function migrate(d: DB): void {
       PRIMARY KEY (symbol, horizon)
     );
   `);
+  addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
 }
 
 function addColumn(d: DB, table: string, column: string, definition: string): void {

@@ -157,3 +157,15 @@ L'utilisateur saisit les titres qu'il détient réellement chez sa SGI (symbole,
 - **Actions ordonnées** par priorité (ventes, allègements, renforcements, nouvelles lignes, diversification, liquidités), synthèse et avertissements.
 
 Le portefeuille enregistré peut être transmis d'un clic au guichet de conseil (section 7) pour une proposition relue par un analyste.
+
+## 13. Obligations (`server/src/engine/bonds.ts`, `server/src/services/bonds.ts`)
+
+Le compartiment obligataire de la BRVM (emprunts d'État de l'UEMOA, BOAD, BIDC, CRRH, obligations d'entreprises) est intégré à l'analyse et au conseil.
+
+- **Référentiel** (`data/bonds.ts`, table `bonds`) : code, émetteur et type (souverain, supranational, entreprise), coupon, dates d'émission et d'échéance, nominal (10 000 FCFA), périodicité, mode d'amortissement (in fine, constant, annuités) et différé, exonération fiscale. Indicatif : un administrateur peut créer, modifier ou désactiver une ligne (`POST/DELETE /api/market/bonds`), importer un fichier (`POST /api/market/bonds/import`) et saisir le prix officiel (`PUT /api/market/bonds/:code/price`).
+- **Calculs** : échéancier complet (coupons sur capital restant dû, remboursements), coupon couru, prix pied de coupon ↔ rendement actuariel (bissection, composition annuelle, base ACT/365), duration de Macaulay et modifiée, convexité, sensibilité à 1 point de base, rendement courant.
+- **Cotation indicative** : rendement simulé autour de « coupon + écart d'émetteur » avec retour à la moyenne, déterministe par code ; prix calculé par actualisation ; historique de 260 séances utilisé dans la covariance des portefeuilles. Le prix saisi par un administrateur prime.
+- **Part obligataire cible** selon le profil : 55 % (très prudent), 45 %, 30 %, 15 %, 5 % (offensif) ; +10 points pour un objectif de revenus, −5 pour la croissance, −10 pour la spéculation ; +10 si l'horizon est inférieur à deux ans, −5 au-delà de huit ans ; bornée à 70 %.
+- **Sélection** : échéances entre un an et horizon + 3 ans, classement par rendement actuariel corrigé du risque émetteur (pénalité sur les entreprises, plus forte pour les profils prudents) et de l'exonération fiscale, au plus 40 % par émetteur, jusqu'à quatre lignes.
+- **Conseil** (section 7) : la poche obligataire est constituée avant l'optimisation des actions ; la réserve de liquidités est ramenée à 10–15 % lorsque la poche obligataire assure la fonction défensive ; le rapport donne les lignes, le rendement moyen, la duration, les coupons annuels et des scénarios où la poche obligataire ne varie que de ± duration × 1 point de taux.
+- **Portefeuille détenu** (section 12) : lignes obligataires valorisées coupon couru inclus, rendement actuariel, duration, échéance, prochain coupon, action (conserver jusqu'à l'échéance, alléger si le rendement est nettement sous le taux de référence, échéance proche) ; répartition actions / obligations / liquidités ; calendrier des coupons et remboursements à douze mois ; comparaison de la poche obligataire à la cible du profil avec suggestions ; concentration par émetteur ; les obligations entrent dans la covariance, le bêta, la perte maximale et la VaR.

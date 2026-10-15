@@ -14,6 +14,7 @@ import type { NewsService } from "../services/news.js";
 import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
+import type { BondService } from "../services/bonds.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -36,6 +37,7 @@ export interface Services {
   forecasts: ForecastService;
   learning: LearningService;
   holdings: HoldingsService;
+  bonds: BondService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -166,6 +168,76 @@ export function buildRouter(s: Services): Router {
   r.get("/market/status", (_req, res) => res.json(s.market.status()));
   r.get("/market/indices", (_req, res) => res.json(s.market.indices()));
   r.get("/market/sectors", (_req, res) => res.json({ sectors: SECTORS, summary: s.market.sectorSummary() }));
+  // ---------- Compartiment obligataire ----------
+  const bondSchema = z.object({
+    code: z.string().min(3).max(16),
+    name: z.string().min(3).max(120),
+    issuer: z.string().min(2).max(120),
+    issuerType: z.enum(["souverain", "supranational", "entreprise"]),
+    country: z.string().length(2),
+    couponPct: z.number().min(0).max(30),
+    issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    maturityDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    nominal: z.number().positive().default(10000),
+    frequency: z.union([z.literal(1), z.literal(2), z.literal(4)]).default(1),
+    amortization: z.enum(["in_fine", "constant", "annuite"]).default("constant"),
+    graceYears: z.number().int().min(0).max(20).default(0),
+    taxExempt: z.boolean().default(false),
+    active: z.boolean().optional(),
+  });
+  const isAdmin = (req: { auth?: { role: string } }) => req.auth!.role === "admin";
+  r.get("/market/bonds", (_req, res) => res.json({ items: s.bonds.list(), note: "Référentiel et cotations indicatifs : vérifier sur le bulletin officiel de la cote ; un administrateur peut saisir les prix officiels." }));
+  r.get("/market/bonds/suggest", (req, res) => res.json(s.bonds.suggest(Number(req.query.budget ?? 1_000_000), Number(req.query.horizon ?? 36), Math.min(8, Number(req.query.lines ?? 4)))));
+  r.get("/market/bonds/:code", (req, res) => {
+    const d = s.bonds.detail(req.params.code.toUpperCase());
+    if (!d) return res.status(404).json({ error: "Obligation inconnue" });
+    res.json(d);
+  });
+  r.post(
+    "/market/bonds",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      res.status(201).json(s.bonds.upsert(bondSchema.parse(req.body)));
+    }),
+  );
+  r.put(
+    "/market/bonds/:code/price",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ price: z.number().positive().nullable() }).parse(req.body);
+      res.json(s.bonds.setPrice(req.params.code.toUpperCase(), body.price));
+    }),
+  );
+  r.delete("/market/bonds/:code", guard, (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Réservé à l'administrateur" });
+    s.bonds.deactivate(req.params.code.toUpperCase());
+    res.json({ ok: true });
+  });
+  r.post(
+    "/market/bonds/import",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ text: z.string().max(50000) }).parse(req.body);
+      const imported: string[] = [];
+      const rejected: string[] = [];
+      for (const raw of body.text.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line || /^code/i.test(line)) continue;
+        const c = line.split(/[;\t]/).map((x) => x.trim());
+        try {
+          const b = bondSchema.parse({ code: c[0], name: c[1], issuer: c[2], issuerType: c[3], country: c[4], couponPct: Number(c[5]), issueDate: c[6], maturityDate: c[7], nominal: c[8] ? Number(c[8]) : 10000, frequency: c[9] ? Number(c[9]) : 1, amortization: c[10] || "constant", graceYears: c[11] ? Number(c[11]) : 0, taxExempt: /^(1|oui|true|o)$/i.test(c[12] ?? "") });
+          s.bonds.upsert(b);
+          imported.push(b.code.toUpperCase());
+        } catch {
+          rejected.push(line);
+        }
+      }
+      res.json({ imported, rejected });
+    }),
+  );
   r.get("/market/instruments", (_req, res) => res.json(INSTRUMENTS));
   r.get("/market/quotes", (_req, res) => res.json(s.market.allSnapshots()));
   r.get("/market/quotes/:symbol", (req, res) => {
@@ -349,7 +421,7 @@ export function buildRouter(s: Services): Router {
   );
 
   // ---------- Portefeuille détenu (saisi par l'utilisateur) et son analyse ----------
-  const heldLine = z.object({ symbol: z.string().min(2).max(8), quantity: z.number().positive().max(1e9), avgPrice: z.number().positive().optional().nullable(), acquiredAt: z.number().optional().nullable(), note: z.string().max(200).optional().nullable() });
+  const heldLine = z.object({ symbol: z.string().min(2).max(16), quantity: z.number().positive().max(1e9), avgPrice: z.number().positive().optional().nullable(), acquiredAt: z.number().optional().nullable(), note: z.string().max(200).optional().nullable() });
   const toLine = (l: z.infer<typeof heldLine>) => ({ symbol: l.symbol.toUpperCase(), quantity: l.quantity, avgPrice: l.avgPrice ?? null, acquiredAt: l.acquiredAt ?? null, note: l.note ?? null });
   r.get("/holdings", guard, (req, res) => res.json(s.holdings.get(req.auth!.sub)));
   r.put(
@@ -408,7 +480,7 @@ export function buildRouter(s: Services): Router {
     riskTolerance: z.number().int().min(1).max(5),
     preferredSectors: z.array(z.string()).max(10).optional(),
     constraints: z.string().max(600).optional(),
-    holdings: z.array(z.object({ symbol: z.string().min(2).max(6), quantity: z.number().int().positive(), avgPrice: z.number().positive().optional() })).max(60).optional(),
+    holdings: z.array(z.object({ symbol: z.string().min(2).max(16), quantity: z.number().int().positive(), avgPrice: z.number().positive().optional() })).max(60).optional(),
     clientLabel: z.string().max(120).optional(),
     /** une SGI peut aussi demander un conseil pour elle-même */
     asSgi: z.boolean().optional(),
@@ -416,7 +488,8 @@ export function buildRouter(s: Services): Router {
     maxLines: z.number().int().min(2).max(15).optional(),
     maxWeightPct: z.number().min(5).max(60).optional(),
     excludedSectors: z.array(z.string()).max(20).optional(),
-    excludedSymbols: z.array(z.string().max(6)).max(60).optional(),
+    excludedSymbols: z.array(z.string().max(16)).max(60).optional(),
+    bondSharePct: z.number().min(0).max(80).optional(),
   });
   const isAnalyst = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
   r.post(
