@@ -62,7 +62,7 @@ export function BondsPage() {
             <div className="kpi"><span className="label">Rendement actuariel moyen</span><span className="value">{avgYtm.toFixed(2)} %</span><span className="sub muted">de {Math.min(...list.map((b) => b.analytics.ytmPct)).toFixed(2)} % à {Math.max(...list.map((b) => b.analytics.ytmPct)).toFixed(2)} %</span></div>
             <div className="kpi"><span className="label">Prochains coupons</span><span className="value" style={{ fontSize: 15 }}>{list.filter((b) => b.analytics.nextCoupon).sort((a, b) => a.analytics.nextCoupon!.date - b.analytics.nextCoupon!.date).slice(0, 2).map((b) => `${b.code} ${fmtDate(b.analytics.nextCoupon!.date)}`).join(" · ")}</span><span className="sub muted">par obligation de {fmtNum(list[0]?.nominal ?? 10000)} FCFA de nominal</span></div>
           </div>
-          <div className="two-col">
+          <div className="two-col" style={{ gridTemplateColumns: "3fr 2fr" }}>
             <div className="card">
               <div className="table-scroll">
                 <table>
