@@ -49,6 +49,7 @@ async function main(): Promise<void> {
   const bonds = new BondService(db);
   holdings.attachBonds(bonds);
   advisory.attachBonds(bonds);
+  bonds.start();
   forecasts.start();
   learning.start();
   const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds };

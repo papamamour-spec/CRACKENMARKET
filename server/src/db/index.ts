@@ -366,6 +366,14 @@ function migrate(d: DB): void {
     );
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
+  addColumn(d, "bonds", "source", "TEXT NOT NULL DEFAULT 'seed'");
+  addColumn(d, "bonds", "dates_estimated", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(d, "bonds", "quoted_pct", "REAL");
+  addColumn(d, "bonds", "prev_pct", "REAL");
+  addColumn(d, "bonds", "quoted_at", "INTEGER");
+  addColumn(d, "bonds", "quote_source", "TEXT");
+  addColumn(d, "bonds", "volume", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(d, "bonds", "suspended", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function addColumn(d: DB, table: string, column: string, definition: string): void {

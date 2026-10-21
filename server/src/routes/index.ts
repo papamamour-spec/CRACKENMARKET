@@ -186,7 +186,24 @@ export function buildRouter(s: Services): Router {
     active: z.boolean().optional(),
   });
   const isAdmin = (req: { auth?: { role: string } }) => req.auth!.role === "admin";
-  r.get("/market/bonds", (_req, res) => res.json({ items: s.bonds.list(), note: "Référentiel et cotations indicatifs : vérifier sur le bulletin officiel de la cote ; un administrateur peut saisir les prix officiels." }));
+  r.get("/market/bonds", (_req, res) => res.json({ items: s.bonds.list(), status: s.bonds.status(), note: "Cours en pourcentage du nominal restant dû, issus de la cote officielle de la BRVM lorsqu'elle est collectée (sinon indicatifs). Les dates de jouissance et le mode d'amortissement sont estimés d'après le libellé tant qu'un administrateur ne les a pas précisés." }));
+  r.post(
+    "/market/bonds/import-cote",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ text: z.string().min(10).max(200000) }).parse(req.body);
+      res.json({ ...s.bonds.importCote(body.text), status: s.bonds.status() });
+    }),
+  );
+  r.post(
+    "/market/bonds/refresh",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      res.json({ lastRun: await s.bonds.refresh(), status: s.bonds.status() });
+    }),
+  );
   r.get("/market/bonds/suggest", (req, res) => res.json(s.bonds.suggest(Number(req.query.budget ?? 1_000_000), Number(req.query.horizon ?? 36), Math.min(8, Number(req.query.lines ?? 4)))));
   r.get("/market/bonds/:code", (req, res) => {
     const d = s.bonds.detail(req.params.code.toUpperCase());
@@ -206,8 +223,8 @@ export function buildRouter(s: Services): Router {
     guard,
     asyncHandler((req, res) => {
       if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
-      const body = z.object({ price: z.number().positive().nullable() }).parse(req.body);
-      res.json(s.bonds.setPrice(req.params.code.toUpperCase(), body.price));
+      const body = z.object({ pricePct: z.number().positive().max(300).nullable() }).parse(req.body);
+      res.json(s.bonds.setPrice(req.params.code.toUpperCase(), body.pricePct));
     }),
   );
   r.delete("/market/bonds/:code", guard, (req, res) => {

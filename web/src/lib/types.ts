@@ -598,18 +598,19 @@ export interface PortfolioAnalysis {
 // ---- Obligations ----
 export type IssuerType = "souverain" | "supranational" | "entreprise";
 export interface BondView {
-  code: string; name: string; issuer: string; issuerType: IssuerType; country: string; couponPct: number; issueDate: string; maturityDate: string; nominal: number; frequency: number; amortization: "in_fine" | "constant" | "annuite"; graceYears: number; taxExempt: boolean; active: boolean;
-  quote: { code: string; price: number; ytmPct: number; changePct: number; ts: number; source: "simulation" | "manuel" };
+  code: string; name: string; issuer: string; issuerType: IssuerType; country: string; couponPct: number; issueDate: string; maturityDate: string; nominal: number; frequency: number; amortization: "in_fine" | "constant" | "annuite"; graceYears: number; taxExempt: boolean; active: boolean; datesEstimated?: boolean; source: "seed" | "brvm" | "admin";
+  quote: { code: string; price: number; pricePct: number; ytmPct: number; changePct: number; volume: number; suspended: boolean; ts: number; source: "brvm" | "admin" | "simulation" };
   analytics: { cleanPrice: number; dirtyPrice: number; accrued: number; ytmPct: number; currentYieldPct: number; macaulayYears: number; modifiedDuration: number; convexity: number; dv01: number; remainingYears: number; outstanding: number; annualCoupon: number; nextCoupon: { date: number; amount: number } | null; nextPrincipal: { date: number; amount: number } | null };
 }
 export interface BondDetail extends BondView {
   schedule: { date: number; coupon: number; principal: number; outstandingAfter: number }[];
   flows: { date: number; years: number; coupon: number; principal: number; outstandingAfter: number }[];
 }
-export interface BondAllocationLine { code: string; name: string; issuer: string; issuerType: IssuerType; price: number; accrued: number; quantity: number; amount: number; weightPct: number; couponPct: number; ytmPct: number; durationYears: number; remainingYears: number; maturityDate: string; annualCoupon: number; taxExempt: boolean; rationale: string }
+export interface BondSourceStatus { sources: string[]; snapshotDate: string; lastRun: { at: number; ok: boolean; rows: number; inserted: number; updated: number; error: string | null } | null; quoted: number; total: number }
+export interface BondAllocationLine { code: string; name: string; issuer: string; issuerType: IssuerType; price: number; pricePct: number; accrued: number; quantity: number; amount: number; weightPct: number; couponPct: number; ytmPct: number; durationYears: number; remainingYears: number; maturityDate: string; annualCoupon: number; taxExempt: boolean; rationale: string }
 export interface BondSleeve { targetSharePct: number; sharePct: number; amount: number; lines: BondAllocationLine[]; annualCoupons: number; avgYieldPct: number; avgDurationYears: number; rationale: string[] }
 export interface BondLine {
-  code: string; name: string; issuer: string; issuerType: string; quantity: number; avgPrice: number | null; price: number; accrued: number; value: number; cost: number | null; pnl: number | null; weightPct: number; couponPct: number; ytmPct: number; currentYieldPct: number; durationYears: number; remainingYears: number; maturityDate: string; outstanding: number; nextCoupon: { date: number; amount: number } | null; annualCoupon: number; taxExempt: boolean; perf1M: number | null;
+  code: string; name: string; issuer: string; issuerType: string; quantity: number; avgPrice: number | null; price: number; pricePct: number; quoteSource: "brvm" | "admin" | "simulation"; accrued: number; value: number; cost: number | null; pnl: number | null; weightPct: number; couponPct: number; ytmPct: number; currentYieldPct: number; durationYears: number; remainingYears: number; maturityDate: string; outstanding: number; nextCoupon: { date: number; amount: number } | null; annualCoupon: number; taxExempt: boolean; perf1M: number | null;
   action: { kind: LineAction; quantity: number; amount: number; reasons: string[] };
 }
 export const ISSUER_LABEL: Record<IssuerType, string> = { souverain: "État", supranational: "Supranational", entreprise: "Entreprise" };
