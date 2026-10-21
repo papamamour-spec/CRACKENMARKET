@@ -125,7 +125,7 @@ export function HoldingsPage() {
             <div className="field"><label>Liquidités disponibles (FCFA)</label><input type="number" value={cash} onChange={(e) => setCash(e.target.value)} /></div>
           </div>
           <table>
-            <thead><tr><th className="left">Valeur</th><th>Quantité</th><th>PRU (FCFA, facultatif)</th><th>Cours</th><th>Valorisation</th><th></th></tr></thead>
+            <thead><tr><th className="left">Valeur</th><th>Quantité</th><th>PRU (facultatif ; obligations : en % du nominal)</th><th>Cours</th><th>Valorisation</th><th></th></tr></thead>
             <tbody>
               {rows.map((r, i) => {
                 const q = quotes.get(r.symbol);
@@ -158,7 +158,7 @@ export function HoldingsPage() {
           </div>
           <details style={{ marginTop: 10 }}>
             <summary style={{ cursor: "pointer", fontSize: 13 }}>Importer un relevé (copier-coller : une ligne par valeur, « SYMBOLE ; quantité ; PRU »)</summary>
-            <textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={5} style={{ width: "100%", marginTop: 6, fontFamily: "inherit" }} placeholder={"SNTS ; 100 ; 21500\nOrange Côte d'Ivoire ; 40 ; 13000\nTPCI.O30 ; 200 ; 9900\nSGBC 25"} />
+            <textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={5} style={{ width: "100%", marginTop: 6, fontFamily: "inherit" }} placeholder={"SNTS ; 100 ; 21500\nOrange Côte d'Ivoire ; 40 ; 13000\nEOS.O17 ; 200 ; 99\nSGBC 25"} />
             <button className="btn sm" style={{ marginTop: 6 }} disabled={busy} onClick={doImport}>Importer ces lignes</button>
           </details>
           {msg && <div className={msg.ok ? "success" : "error"}>{msg.text}</div>}
@@ -250,14 +250,14 @@ export function HoldingsPage() {
               {a.bondLines.length > 0 && (
                 <div className="table-scroll">
                   <table>
-                    <thead><tr><th className="left">Obligation</th><th>Qté</th><th>PRU</th><th>Cours</th><th>Couru</th><th>Valeur</th><th>+/- value</th><th>Poids</th><th>Coupon</th><th>Rdt act.</th><th>Duration</th><th>Échéance</th><th>Prochain coupon</th><th className="left">Action proposée</th></tr></thead>
+                    <thead><tr><th className="left">Obligation</th><th>Qté</th><th>PRU (FCFA)</th><th>Cours (% nominal)</th><th>Couru</th><th>Valeur</th><th>+/- value</th><th>Poids</th><th>Coupon</th><th>Rdt act.</th><th>Duration</th><th>Échéance</th><th>Prochain coupon</th><th className="left">Action proposée</th></tr></thead>
                     <tbody>
                       {a.bondLines.map((l) => (
                         <tr key={l.code}>
                           <td><span className="sym">{l.code}<small>{l.issuer}{l.taxExempt ? " · exonérée" : ""}</small></span></td>
                           <td className="mono">{l.quantity}</td>
                           <td className="mono muted">{l.avgPrice != null ? fmtNum(l.avgPrice) : "—"}</td>
-                          <td className="mono">{fmtNum(l.price)}</td>
+                          <td className="mono">{l.pricePct.toFixed(2)} %<br /><small className={l.quoteSource === "simulation" ? "muted" : "up"}>{l.quoteSource === "simulation" ? "indicatif" : "BRVM"}</small></td>
                           <td className="mono muted">{fmtNum(l.accrued)}</td>
                           <td className="mono">{fmtNum(l.value)}</td>
                           <td className={`mono ${l.pnl != null ? signClass(l.pnl) : "muted"}`}>{l.pnl != null ? `${l.pnl > 0 ? "+" : ""}${fmtNum(l.pnl)}` : "—"}</td>

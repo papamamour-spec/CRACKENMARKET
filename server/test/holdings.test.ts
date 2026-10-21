@@ -111,8 +111,8 @@ describe("portefeuille détenu avec obligations", () => {
     const bonds = new BondService(db);
     svc.attachBonds(bonds);
     const userId = new AuthService(db).register("b@ex.com", "secret123", "Bond Holder").id;
-    const parsed = svc.parseImport("SNTS;100;20000\nTPCI.O30;200;9900\nBOAD 6,00 % 2024-2033;50");
-    expect(parsed.positions.map((p) => [p.symbol, p.assetType])).toEqual([["SNTS", "equity"], ["TPCI.O30", "bond"], ["BOAD.O33", "bond"]]);
+    const parsed = svc.parseImport("SNTS;100;20000\nEOS.O17;200;99\nTPCI 5,75% 2022-2037;50");
+    expect(parsed.positions.map((p) => [p.symbol, p.assetType])).toEqual([["SNTS", "equity"], ["EOS.O17", "bond"], ["TPCI.O69", "bond"]]);
     svc.replace(userId, { cash: 2_000_000, positions: parsed.positions });
     expect(svc.get(userId).positions.filter((p) => p.assetType === "bond")).toHaveLength(2);
     const a = svc.analyze(userId);
@@ -122,7 +122,10 @@ describe("portefeuille détenu avec obligations", () => {
     expect(a.totals.bondsValue).toBeGreaterThan(0);
     expect(a.totals.total).toBe(a.totals.invested + a.totals.bondsValue + a.totals.cash);
     expect(a.assetClasses.equitiesPct + a.assetClasses.bondsPct + a.assetClasses.cashPct).toBeCloseTo(100, 0);
-    const tpci = a.bondLines.find((l) => l.code === "TPCI.O30")!;
+    const tpci = a.bondLines.find((l) => l.code === "EOS.O17")!;
+    expect(tpci.pricePct).toBe(92);
+    expect(tpci.avgPrice).toBe(9900); // PRU saisi en % du nominal → FCFA
+    expect(tpci.pnl).toBeLessThan(0); // acheté 99 %, coté 92 %
     expect(tpci.ytmPct).toBeGreaterThan(3);
     expect(tpci.durationYears).toBeGreaterThan(0);
     expect(tpci.nextCoupon).not.toBeNull();

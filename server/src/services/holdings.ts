@@ -58,7 +58,9 @@ export interface BondLine {
   issuerType: string;
   quantity: number;
   avgPrice: number | null;
-  price: number; // pied de coupon
+  price: number; // pied de coupon, FCFA
+  pricePct: number; // % du nominal restant dû (cote BRVM)
+  quoteSource: "brvm" | "admin" | "simulation";
   accrued: number;
   value: number; // coupon attaché × quantité
   cost: number | null;
@@ -239,7 +241,9 @@ export class HoldingsService {
       const a = analyzeBond(v, v.quote.price, now);
       const dirty = v.quote.price + a.accrued;
       const value = dirty * p.quantity;
-      const lineCost = p.avgPrice && p.avgPrice > 0 ? p.avgPrice * p.quantity : null;
+      // prix de revient saisi en % du nominal (cote BRVM, ex. 100) ou en FCFA par obligation
+      const avgFcfa = p.avgPrice && p.avgPrice > 0 ? (p.avgPrice <= 200 ? (p.avgPrice / 100) * v.nominal : p.avgPrice) : null;
+      const lineCost = avgFcfa != null ? avgFcfa * p.quantity : null;
       const hist = this.bonds!.history(code, 30);
       const perf1M = hist.length > 21 ? r1(((hist[hist.length - 1].close - hist[hist.length - 22].close) / hist[hist.length - 22].close) * 100) : null;
       const reasons: string[] = [];
@@ -258,8 +262,10 @@ export class HoldingsService {
         issuer: v.issuer,
         issuerType: v.issuerType,
         quantity: p.quantity,
-        avgPrice: p.avgPrice ?? null,
+        avgPrice: avgFcfa,
         price: v.quote.price,
+        pricePct: v.quote.pricePct,
+        quoteSource: v.quote.source,
         accrued: r0(a.accrued),
         value: r0(value),
         cost: lineCost != null ? r0(lineCost) : null,

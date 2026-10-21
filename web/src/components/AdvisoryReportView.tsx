@@ -141,7 +141,7 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
                 <div className="kpi"><span className="label">Part recommandée</span><span className="value">{r.bonds.targetSharePct} %</span><span className="sub muted">{r.bonds.rationale[0]}</span></div>
               </div>
               <table style={{ marginTop: 8 }}>
-                <thead><tr><th className="left">Obligation</th><th className="left">Émetteur</th><th>Poids</th><th>Quantité</th><th>Cours + couru</th><th>Montant</th><th>Coupon</th><th>Rdt actuariel</th><th>Duration</th><th>Échéance</th>{!compact && <th className="left">Justification</th>}</tr></thead>
+                <thead><tr><th className="left">Obligation</th><th className="left">Émetteur</th><th>Poids</th><th>Quantité</th><th>Cours (% nominal)</th><th>Montant</th><th>Coupon</th><th>Rdt actuariel</th><th>Duration</th><th>Échéance</th>{!compact && <th className="left">Justification</th>}</tr></thead>
                 <tbody>
                   {r.bonds.lines.map((l) => (
                     <tr key={l.code}>
@@ -149,7 +149,7 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
                       <td className="left muted">{l.issuer}{l.taxExempt ? " · exonérée" : ""}</td>
                       <td className="mono">{l.weightPct} %</td>
                       <td className="mono">{l.quantity}</td>
-                      <td className="mono">{fmtNum(l.price + l.accrued)}</td>
+                      <td className="mono">{l.pricePct.toFixed(2)} %<br /><small className="muted">{fmtNum(l.price + l.accrued)} FCFA</small></td>
                       <td className="mono">{fmtNum(l.amount)}</td>
                       <td className="mono">{l.couponPct.toFixed(2)} %</td>
                       <td className="mono"><b>{l.ytmPct.toFixed(2)} %</b></td>
