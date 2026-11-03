@@ -357,6 +357,19 @@ function migrate(d: DB): void {
       manual_price REAL,
       manual_price_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS company_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      period TEXT,
+      url TEXT NOT NULL UNIQUE,
+      published_at INTEGER,
+      source TEXT NOT NULL,
+      summary TEXT,
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_company_documents_symbol ON company_documents(symbol, published_at);
     CREATE TABLE IF NOT EXISTS model_params (
       symbol TEXT NOT NULL,
       horizon TEXT NOT NULL,

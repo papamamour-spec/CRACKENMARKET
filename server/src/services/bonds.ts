@@ -8,6 +8,7 @@ export interface BondQuote {
   code: string;
   price: number; // pied de coupon, FCFA par obligation (sur le capital restant dû)
   pricePct: number; // cours officiel BRVM : % du nominal restant dû
+  stale: boolean; // cours officiel de plus de 10 jours
   ytmPct: number;
   changePct: number; // variation vs veille
   volume: number;
@@ -231,7 +232,7 @@ export class BondService extends EventEmitter {
   status(): BondSourceStatus {
     const listed = this.list();
     const total = listed.length;
-    const quoted = listed.filter((v) => v.quote.source !== "simulation").length;
+    const quoted = listed.filter((v) => v.quote.source !== "simulation" && !v.quote.stale).length;
     return { sources: this.sources, snapshotDate: BRVM_COTE_SNAPSHOT_DATE, lastRun: this.lastRun, quoted, total };
   }
 
@@ -271,7 +272,8 @@ export class BondService extends EventEmitter {
 
   /** Cours pied de coupon en % du nominal restant dû à une date (cours officiel s'il est récent, sinon indicatif). */
   pricePctAt(b: ReturnType<BondService["toDef"]>, at = Date.now(), allowOfficial = true): { pct: number; official: boolean } {
-    if (allowOfficial && b.quotedPct != null && b.quotedAt != null && at - b.quotedAt <= QUOTE_MAX_AGE && at >= b.quotedAt - DAY) return { pct: b.quotedPct, official: true };
+    // le dernier cours officiel connu prime toujours sur la simulation (même ancien : il est daté dans l'interface)
+    if (allowOfficial && b.quotedPct != null && b.quotedAt != null && at >= b.quotedAt - DAY) return { pct: b.quotedPct, official: true };
     const y = this.simulatedYield(b, this.dayIndex(at)) / 100;
     const outstanding = outstandingAt(b, at);
     return { pct: outstanding > 0 ? Math.round((cleanPrice(b, y, at) / outstanding) * 10000) / 100 : 0, official: false };
@@ -290,6 +292,7 @@ export class BondService extends EventEmitter {
       code: b.code,
       price,
       pricePct: pct,
+      stale: official && now - b.quotedAt! > QUOTE_MAX_AGE,
       ytmPct: Math.round(a.ytmPct * 100) / 100,
       changePct: prevPct ? Math.round(((pct - prevPct) / prevPct) * 10000) / 100 : 0,
       volume: official ? b.volume : 0,

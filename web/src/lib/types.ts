@@ -615,3 +615,8 @@ export interface BondLine {
 }
 export const ISSUER_LABEL: Record<IssuerType, string> = { souverain: "État", supranational: "Supranational", entreprise: "Entreprise" };
 export const AMORT_LABEL: Record<string, string> = { in_fine: "In fine", constant: "Amortissement constant", annuite: "Annuités constantes" };
+
+// ---- Documents des sociétés ----
+export interface CompanyDocument { id: number; symbol: string; title: string; kind: string; period: string | null; url: string; published_at: number | null; source: string; summary: string | null; fetched_at: number }
+export interface DocumentsResponse { items: CompanyDocument[]; status: { sources: { name: string; url: string; perCompany: boolean }[]; documents: number; companies: number; bySymbol: { symbol: string; n: number; last: number | null }[]; lastRun: { at: number; ok: string[]; failed: string[]; inserted: number } | null } }
+export interface DocumentHistory { symbol: string; name: string; total: number; years: { year: string; documents: CompanyDocument[] }[]; kinds: Record<string, number>; latestResults: CompanyDocument | null; latestAnnualReport: CompanyDocument | null }

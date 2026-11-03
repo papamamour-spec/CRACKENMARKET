@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtNum } from "../lib/format";
 import type { MarketEvent, Signal } from "../lib/types";
 import { NewsPanel } from "../components/NewsPanel";
+import { DocumentsPanel } from "../components/DocumentsPanel";
 
 const KIND_LABEL: Record<MarketEvent["kind"], string> = { dividend: "Dividende", agm: "Assemblée", results: "Résultats", market: "Place" };
 
@@ -27,6 +28,7 @@ export function NewsPage() {
   return (
     <div className="grid">
       <NewsPanel title="Actualité BRVM et presse financière" limit={40} />
+      <DocumentsPanel title="Documents des sociétés cotées (rapports, états financiers, communiqués)" limit={40} />
     <div className="two-col">
       <div className="card">
         <div className="card-head">
