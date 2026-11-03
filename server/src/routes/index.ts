@@ -15,6 +15,7 @@ import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
 import type { BondService } from "../services/bonds.js";
+import type { DocumentService } from "../services/documents.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -38,6 +39,7 @@ export interface Services {
   learning: LearningService;
   holdings: HoldingsService;
   bonds: BondService;
+  documents: DocumentService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -168,6 +170,42 @@ export function buildRouter(s: Services): Router {
   r.get("/market/status", (_req, res) => res.json(s.market.status()));
   r.get("/market/indices", (_req, res) => res.json(s.market.indices()));
   r.get("/market/sectors", (_req, res) => res.json({ sectors: SECTORS, summary: s.market.sectorSummary() }));
+  // ---------- Documents des sociétés (rapports, états financiers, communiqués) ----------
+  const staff = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
+  r.get("/market/documents", (req, res) => {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    const kind = req.query.kind ? (String(req.query.kind) as import("../services/documents.js").DocumentKind) : undefined;
+    res.json({ items: s.documents.list({ symbol, kind, q: req.query.q ? String(req.query.q) : undefined, limit: Number(req.query.limit ?? 100) }), status: s.documents.status() });
+  });
+  r.get("/market/documents/history/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json(s.documents.history(symbol));
+  });
+  r.post(
+    "/market/documents/refresh",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!staff(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const symbols = req.body?.symbols ? z.array(z.string().max(8)).max(60).parse(req.body.symbols).map((x) => x.toUpperCase()) : undefined;
+      res.json({ inserted: await s.documents.refresh(symbols), status: s.documents.status() });
+    }),
+  );
+  r.post(
+    "/market/documents/import",
+    guard,
+    asyncHandler((req, res) => {
+      if (!staff(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ text: z.string().min(5).max(200000), source: z.string().max(80).optional() }).parse(req.body);
+      res.json({ ...s.documents.importText(body.text, body.source), status: s.documents.status() });
+    }),
+  );
+  r.delete("/market/documents/:id", guard, (req, res) => {
+    if (!staff(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    s.documents.remove(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
   // ---------- Compartiment obligataire ----------
   const bondSchema = z.object({
     code: z.string().min(3).max(16),

@@ -4,6 +4,7 @@ import { OrderTicket } from "../components/OrderTicket";
 import { OrderBookPanel } from "../components/OrderBookPanel";
 import { NewsPanel } from "../components/NewsPanel";
 import { ForecastCard } from "../components/ForecastCard";
+import { DocumentsPanel } from "../components/DocumentsPanel";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
@@ -113,6 +114,7 @@ export function InstrumentPage() {
           {rec && <RecommendationCard rec={rec} detailed />}
           <ForecastCard symbol={symbol} />
           <NewsPanel symbol={symbol} limit={8} title={`Actualité ${symbol}`} />
+          <DocumentsPanel symbol={symbol} title={`Documents ${symbol}`} />
           <details className="card">
             <summary style={{ cursor: "pointer", fontWeight: 600 }}>Négocier cette valeur (carnet d'ordres, ticket, transactions)</summary>
             <p className="muted" style={{ fontSize: 12 }}>Réservé aux investisseurs qui souhaitent passer eux-mêmes leurs ordres. Le conseil ci-dessus reste la référence ; l'exécution réelle passe par votre SGI.</p>

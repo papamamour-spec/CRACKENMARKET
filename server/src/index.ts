@@ -21,6 +21,7 @@ import { ForecastService } from "./services/forecast.js";
 import { LearningService } from "./services/learning.js";
 import { HoldingsService } from "./services/holdings.js";
 import { BondService } from "./services/bonds.js";
+import { DocumentService } from "./services/documents.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -50,9 +51,12 @@ async function main(): Promise<void> {
   holdings.attachBonds(bonds);
   advisory.attachBonds(bonds);
   bonds.start();
+  const documents = new DocumentService(db);
+  documents.attachNews(news);
+  documents.start();
   forecasts.start();
   learning.start();
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds };
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();
