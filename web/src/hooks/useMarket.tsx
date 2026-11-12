@@ -106,6 +106,9 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           case "alert":
             setNotifications((n) => [{ id: notifId++, kind: "alert" as const, message: msg.message, ts: Date.now() }, ...n].slice(0, 20));
             break;
+          case "quality":
+            setNotifications((n) => [{ id: notifId++, kind: "alert" as const, message: msg.message, ts: Date.now() }, ...n].slice(0, 20));
+            break;
           case "order_filled":
             setNotifications((n) => [
               { id: notifId++, kind: "order" as const, message: `Ordre limite exécuté : ${msg.order.side === "buy" ? "achat" : "vente"} ${msg.order.quantity} ${msg.order.symbol} à ${msg.order.filled_price}`, ts: Date.now() },

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { INSTRUMENTS, INSTRUMENT_MAP, SECTORS } from "../data/instruments.js";
 import { backtest } from "../engine/backtest.js";
 import { config } from "../config.js";
+import { CHECK_LABELS } from "../services/dataquality.js";
 import { indicatorSeries } from "../engine/technical.js";
 import { POINTS, ROLES, type AuthService, type Role } from "../services/auth.js";
 import type { SocialService } from "../services/social.js";
@@ -15,6 +16,7 @@ import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
 import type { TrackingService } from "../services/tracking.js";
 import type { ModelPortfolioService } from "../services/models.js";
+import type { DataQualityService } from "../services/dataquality.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
@@ -59,6 +61,7 @@ export interface Services {
   history: HistoryService;
   tracking: TrackingService;
   models: ModelPortfolioService;
+  dataQuality: DataQualityService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -823,6 +826,31 @@ export function buildRouter(s: Services): Router {
       res.json(s.advisory.generateReport({ ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) }));
     }),
   );
+  // ---- Qualité des données et rapport du jour ----
+  r.get("/quality", guard, (_req, res) => res.json({ run: s.dataQuality.latestRun(), history: s.dataQuality.scoreHistory(30), status: s.dataQuality.status(), labels: CHECK_LABELS }));
+  r.post(
+    "/quality/run",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ run: s.dataQuality.runChecks(), history: s.dataQuality.scoreHistory(30), status: s.dataQuality.status(), labels: CHECK_LABELS });
+    }),
+  );
+  r.get("/quality/daily", guard, (_req, res) => {
+    const reports = s.dataQuality.reports(14);
+    res.json({ report: reports[0] ?? null, previous: reports[1] ?? null, history: reports });
+  });
+  r.post(
+    "/quality/daily/run",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const report = s.dataQuality.dailyReport();
+      const reports = s.dataQuality.reports(14);
+      res.json({ report, previous: reports[1] ?? null, history: reports });
+    }),
+  );
+
   // ---- Portefeuilles modèles par profil ----
   r.get("/models", guard, (_req, res) => res.json({ items: s.models.list(), status: s.models.status() }));
   r.get("/models/:key", guard, (req, res) => {

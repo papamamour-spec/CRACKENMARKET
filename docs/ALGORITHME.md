@@ -263,3 +263,24 @@ Quatre portefeuilles de référence tenus comme une gestion modèle, à la mani�
 - **Suivi** : chaque publication crée un portefeuille suivi (section 22, type « modèle ») : performance nette de frais contre BRVM Composite et BRVM 30 depuis la publication, par version.
 - **Plan pour mon portefeuille** : rapprochement du portefeuille détenu (section 12) d'un modèle par bandes de non-échange sur les actions (opérations, frais, rotation, prochaine revue), écart de la poche obligataire et liquidités.
 - Routes : `GET /api/models`, `GET /api/models/:key` (versions, série), `GET /api/models/:key/plan`, `POST /api/models/recompute` et `POST /api/models/:key/publish` (analyste). Page « Portefeuilles modèles ».
+
+## 24. Contrôle de qualité des données et rapport de risque du jour (`server/src/services/dataquality.ts`)
+
+Chaque jour ouvré après la clôture (3 minutes après le démarrage, puis après 16 h UTC ; `QUALITY_AUTO=0` désactive) et à la demande, dix contrôles passent sur les données qui nourrissent les modèles :
+
+| Contrôle | Ce qui est vérifié | Sévérité |
+| --- | --- | --- |
+| Cohérence bulletin / cours en base | clôture du bulletin officiel contre la bougie de la même séance | écart > 1 % avertissement, > 5 % erreur, séance absente |
+| Fraîcheur du bulletin | séances manquantes depuis la dernière séance close, couverture, dernier passage | 1–2 séances avertissement, ≥ 3 erreur |
+| Fraîcheur de l'historique réel | dernière séance réelle par valeur, valeurs sans séance réelle, collecte en échec | ≥ 5 séances de retard avertissement |
+| Variations hors limite | variations > 7,5 % entre deux séances réelles (limite BRVM), clôtures invalides | avertissement / erreur |
+| Dividendes | dividende exceptionnel (section 23), écart entre dividende enregistré et dernier dividende du bulletin, dividende du bulletin non enregistré | avertissement / information |
+| Référentiel | cours de référence éloigné de plus de 50 % du cours, valeurs sans nombre d'actions | avertissement / information |
+| Fondamentaux | sociétés sans publication, résultat net > chiffre d'affaires, capitaux propres négatifs, publications de plus de 18 mois | avertissement / information |
+| Obligations | lignes actives sans cours récent, rendement actuariel hors de [0 ; 25 %] | avertissement / information |
+| Collecteurs | sources injoignables, documents en échec, publications illisibles, retour en simulation, collecte des obligations | erreur / avertissement / information |
+| Modèles | modèle non publié, CVaR au-dessus de la limite, dérive de la proposition | avertissement / information |
+
+Score = 100 − 10 par erreur − 3 par avertissement − 0,5 par information (borné à 0). Chaque constat porte une empreinte stable : le passage suivant liste les constats **nouveaux** et **résolus**. Les passages sont conservés (`data_quality_runs`) ; une nouvelle erreur ou une baisse du score de plus de 10 points envoie une alerte aux administrateurs et analystes connectés.
+
+**Rapport du jour** (`daily_reports`) : place (indices, hausses et baisses), score de qualité, portefeuille détenu du propriétaire (valeur, séance, CVaR et limite, volatilité, bêta, pire scénario de résistance, lignes hors bande, prochaine revue, avertissements), modèles (performance nette, écart à l'indice, CVaR, dérive). Les **changements depuis la veille** sont listés : baisse du score, nouvelles erreurs, CVaR franchissant la limite ou variant de 2 points, lignes sortant de leur bande, séance de ± 2 %, dérive d'un modèle, nouvelle version publiée, indice de ± 1,5 %. Page « Qualité & risque du jour » ; routes `GET /api/quality`, `POST /api/quality/run`, `GET /api/quality/daily`, `POST /api/quality/daily/run` (analyste).

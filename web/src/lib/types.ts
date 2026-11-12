@@ -720,3 +720,17 @@ export interface ModelPlan {
   plan: { trades: RebalanceTrade[]; withinBand: { symbol: string; currentPct: number; targetPct: number; bandPct: number }[]; turnoverPct: number; estimatedCost: number; nextReview: number };
   bondSuggestions: { code: string; name: string; weightPct: number; amount: number }[]; verdict: string;
 }
+
+export type QualitySeverity = "info" | "warning" | "error";
+export interface QualityFinding { check: string; severity: QualitySeverity; symbol: string | null; message: string; value: number | null; key: string }
+export interface QualityRun { id: number; ts: number; score: number; errors: number; warnings: number; infos: number; checks: { check: string; label: string; count: number; worst: QualitySeverity | null }[]; findings: QualityFinding[]; changes: { added: QualityFinding[]; resolved: QualityFinding[] }; durationMs: number }
+export interface QualityResponse { run: QualityRun | null; history: { ts: number; score: number; errors: number; warnings: number; infos: number }[]; status: { lastRun: { ts: number; score: number } | null; lastReport: number | null; running: boolean }; labels: Record<string, string> }
+export interface DailyReport {
+  date: number; ts: number;
+  market: { composite: number; compositeChangePct: number; brvm30: number; brvm30ChangePct: number; advancers: number; decliners: number; unchanged: number; provider: string };
+  quality: { score: number; errors: number; warnings: number } | null;
+  holdings: { total: number; dayPct: number | null; cvar95_1mPct: number; cvarLimitPct: number; volatilityPct: number; beta: number | null; worstStress: { label: string; totalPct: number } | null; outsideBand: number; nextReview: number | null; warnings: string[] } | null;
+  models: { key: string; label: string; version: number; returnNetPct: number | null; alphaCompositePct: number | null; cvar95_1mPct: number | null; driftTrades: number }[];
+  changes: string[];
+}
+export interface DailyResponse { report: DailyReport | null; previous: DailyReport | null; history: DailyReport[] }

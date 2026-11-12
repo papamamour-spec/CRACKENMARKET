@@ -28,6 +28,7 @@ import { AdvisoryRequestPage } from "./pages/AdvisoryRequestPage";
 import { AnalystInboxPage } from "./pages/AnalystInboxPage";
 import { DataPage } from "./pages/DataPage";
 import { ModelsPage } from "./pages/ModelsPage";
+import { QualityPage } from "./pages/QualityPage";
 
 function Protected() {
   const { user, loading } = useAuth();
@@ -89,6 +90,7 @@ export function App() {
             <Route path="/conseil" element={<AdvisoryRequestPage />} />
             <Route path="/conseil/analyste" element={<AnalystInboxPage />} />
             <Route path="/modeles" element={<ModelsPage />} />
+            <Route path="/qualite" element={<QualityPage />} />
             <Route path="/sgi" element={<SgiPage />} />
             <Route path="/sgi/console" element={<SgiConsolePage />} />
           </Route>
