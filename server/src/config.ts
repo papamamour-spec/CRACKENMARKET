@@ -21,6 +21,12 @@ export const config = {
   adminEmail: env.ADMIN_EMAIL,
   adminPassword: env.ADMIN_PASSWORD,
   /**
+   * Mode privé (défaut) : la plateforme ne sert qu'à son propriétaire. Aucune inscription, un seul compte
+   * (ADMIN_EMAIL / ADMIN_PASSWORD, administrateur et analyste), pas de classement, de profils publics, de
+   * parrainage ni de guichet SGI ; la page publique est remplacée par la connexion. PRIVATE_MODE=0 rouvre.
+   */
+  privateMode: env.PRIVATE_MODE !== "0",
+  /**
    * Profondeur d'historique quotidien conservée par valeur, en séances (jours ouvrés).
    * Défaut : 5 ans (≈ 261 séances par an). Une base plus courte est étendue au démarrage.
    */

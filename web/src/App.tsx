@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
-import { MarketProvider } from "./hooks/useMarket";
+import { MarketProvider, useMarket } from "./hooks/useMarket";
 import { ThemeProvider } from "./hooks/useTheme";
 import { AdvisorPage } from "./pages/AdvisorPage";
 import { AlertsPage } from "./pages/AlertsPage";
@@ -39,16 +39,23 @@ function Protected() {
   );
 }
 
-/** Accueil : cote publique pour les visiteurs, tableau de bord pour les membres. */
+/** Accueil : cote publique pour les visiteurs (connexion directe en mode privé), tableau de bord pour les membres. */
 function Public() {
   const { user, loading } = useAuth();
   if (loading) return <div className="auth card">Chargement…</div>;
   if (user) return <Navigate to="/" replace />;
   return (
     <MarketProvider>
-      <LandingPage />
+      <PublicGate />
     </MarketProvider>
   );
+}
+
+function PublicGate() {
+  const { status } = useMarket();
+  if (!status) return <div className="auth card">Chargement…</div>;
+  if (status.privateMode) return <Navigate to="/connexion" replace />;
+  return <LandingPage />;
 }
 
 export function App() {

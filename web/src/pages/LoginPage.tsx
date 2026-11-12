@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { api } from "../lib/api";
+import type { MarketStatus } from "../lib/types";
 
 const ROLES = [
   { value: "investor", label: "Investisseur particulier" },
@@ -24,6 +26,10 @@ export function LoginPage() {
   const [role, setRole] = useState("investor");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [privateMode, setPrivateMode] = useState<boolean | null>(null);
+  useEffect(() => {
+    api<MarketStatus>("/health").then((h) => { setPrivateMode(!!h.privateMode); if (h.privateMode) setMode("login"); }).catch(() => setPrivateMode(false));
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,10 +61,14 @@ export function LoginPage() {
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}><ThemeToggle /></div>
       <div className="brand">Cracken<span>Market</span></div>
       <div className="card">
-        <div className="tabs">
-          <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Connexion</button>
-          <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Créer un compte</button>
-        </div>
+        {privateMode ? (
+          <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>Accès privé : cette plateforme est réservée à son propriétaire.</p>
+        ) : (
+          <div className="tabs">
+            <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Connexion</button>
+            <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Créer un compte</button>
+          </div>
+        )}
         {tempToken ? (
           <form onSubmit={submit}>
             <p>Entrez le code à 6 chiffres de votre application d'authentification.</p>
@@ -87,8 +97,8 @@ export function LoginPage() {
           <button className="btn primary" style={{ width: "100%" }} disabled={busy}>{mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
         </form>
         )}
-        <p style={{ textAlign: "center", marginTop: 12, fontSize: 12 }}><Link to="/">← Retour à la cote publique</Link></p>
-        <p className="disclaimer">Plateforme de conseil en investissement sur la BRVM : demandes de placement pour les particuliers et les SGI, propositions relues par un analyste, exécution par une SGI agréée. Un portefeuille virtuel de 5 000 000 FCFA permet de s'entraîner. Les conseils ne constituent pas une recommandation personnalisée au sens réglementaire.</p>
+        {!privateMode && <p style={{ textAlign: "center", marginTop: 12, fontSize: 12 }}><Link to="/">← Retour à la cote publique</Link></p>}
+        {!privateMode && <p className="disclaimer">Plateforme de conseil en investissement sur la BRVM : demandes de placement pour les particuliers et les SGI, propositions relues par un analyste, exécution par une SGI agréée. Un portefeuille virtuel de 5 000 000 FCFA permet de s'entraîner. Les conseils ne constituent pas une recommandation personnalisée au sens réglementaire.</p>}
       </div>
     </div>
   );

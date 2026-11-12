@@ -30,6 +30,8 @@ export interface IndexSnapshot {
 }
 export interface MarketStatus {
   provider: "live" | "simulation";
+  /** plateforme réservée à son propriétaire : pas d'inscription ni de fonctions communautaires */
+  privateMode?: boolean;
   open: boolean;
   serverTime: number;
   nextOpen: number;

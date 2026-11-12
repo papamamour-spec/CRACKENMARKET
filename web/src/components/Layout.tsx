@@ -11,6 +11,7 @@ interface NavItem {
   label: string;
   icon: string;
   roles?: string[];
+  publicOnly?: boolean;
 }
 interface NavGroup {
   title: string;
@@ -57,7 +58,7 @@ export function Layout() {
         { to: "/portefeuille", label: "Portefeuille", icon: "▤" },
         { to: "/performance", label: "Performance", icon: "↗" },
         { to: "/sgi", label: role === "sgi" ? "Comptes-titres" : "Ma SGI", icon: "⚑" },
-        { to: "/sgi/console", label: "Console SGI", icon: "⚙", roles: ["sgi", "admin"] },
+        { to: "/sgi/console", label: "Console SGI", icon: "⚙", roles: ["sgi", "admin"], publicOnly: true },
       ],
     },
     {
@@ -68,7 +69,7 @@ export function Layout() {
         { to: "/obligations", label: "Obligations", icon: "▣" },
         { to: "/actualites", label: "Signaux & agenda", icon: "◔" },
         { to: "/marche", label: "Cote & screener", icon: "≣" },
-        { to: "/classement", label: "Classement", icon: "♛" },
+        { to: "/classement", label: "Classement", icon: "♛", publicOnly: true },
         { to: "/alertes", label: "Suivi & alertes", icon: "☆" },
         { to: "/backtest", label: "Backtest", icon: "⟲" },
         { to: "/donnees", label: "Données officielles", icon: "▦", roles: ["analyst", "admin"] },
@@ -88,7 +89,7 @@ export function Layout() {
       <aside className="sidebar" aria-label="Navigation principale">
         <div className="brand">Cracken<span>Market</span></div>
         {groups.map((g) => {
-          const items = g.items.filter((i) => !i.roles || i.roles.includes(role));
+          const items = g.items.filter((i) => (!i.roles || i.roles.includes(role)) && !(i.publicOnly && status?.privateMode));
           if (!items.length) return null;
           return (
             <div key={g.title} className="nav-group">

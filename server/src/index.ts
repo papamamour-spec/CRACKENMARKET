@@ -39,6 +39,10 @@ async function main(): Promise<void> {
   await market.start();
   const auth = new AuthService(db);
   auth.ensureAdmin(config.adminEmail, config.adminPassword);
+  if (config.privateMode) {
+    if (!config.adminEmail || !config.adminPassword) console.warn("[auth] mode privé sans ADMIN_EMAIL / ADMIN_PASSWORD : aucun compte ne peut se connecter (les inscriptions sont fermées).");
+    else console.log(`[auth] mode privé : plateforme réservée à ${config.adminEmail.toLowerCase()} ; PRIVATE_MODE=0 pour rouvrir les inscriptions.`);
+  }
   const portfolios = new PortfolioService(db, market);
   const advisor = new AdvisorService(db, market, portfolios);
   const alerts = new AlertService(db);

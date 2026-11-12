@@ -34,7 +34,8 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `SIM_TICK_INTERVAL_MS` | `2000` | fréquence des ticks simulés |
    | `DB_PATH` | `/data/crackenmarket.db` | chemin de la base (déjà défini dans l'image) |
    | `CORS_ORIGIN` | `*` | front et API servis par le même domaine |
-   | `ADMIN_EMAIL` | e-mail de l'administrateur | avec `ADMIN_PASSWORD`, crée le compte administrateur au démarrage |
+   | `PRIVATE_MODE` | `1` | plateforme réservée à son propriétaire : aucune inscription, le seul compte est `ADMIN_EMAIL` ; `0` pour rouvrir les inscriptions et les fonctions communautaires |
+   | `ADMIN_EMAIL` | e-mail de l'administrateur | avec `ADMIN_PASSWORD`, crée le compte administrateur au démarrage (en mode privé, c'est l'unique compte) |
    | `ADMIN_PASSWORD` | mot de passe (8 caractères minimum) | ne jamais l'écrire dans le dépôt ; changer la variable réinitialise le mot de passe |
    | `FORECAST_BACKFILL_SESSIONS` | `120` | profondeur de l'amorçage de l'apprentissage continu (prévisions rejouées sur l'historique au premier démarrage ; `0` pour désactiver) |
    | `DOC_SOURCES_JSON` | (facultatif) `[{"name":"…","url":"https://…/{symbol}","perCompany":true}]` | sources supplémentaires de documents de sociétés |

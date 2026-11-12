@@ -26,7 +26,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
 
 /** Recherche globale (Ctrl/⌘ + K) : valeurs et pages, navigation au clavier. */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { quotes } = useMarket();
+  const { quotes, status } = useMarket();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
@@ -45,9 +45,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       .sort((a, b) => (a.symbol.toLowerCase().startsWith(needle) ? -1 : 1) - (b.symbol.toLowerCase().startsWith(needle) ? -1 : 1) || b.value - a.value)
       .slice(0, 8)
       .map((x) => ({ kind: "symbol" as const, label: x.symbol, hint: x.name, to: `/valeur/${x.symbol}`, quote: x }));
-    const pages = PAGES.filter((p) => !needle || p.label.toLowerCase().includes(needle) || p.hint.toLowerCase().includes(needle)).slice(0, 6).map((p) => ({ kind: "page" as const, ...p, quote: undefined }));
+    const pages = PAGES.filter((p) => !(status?.privateMode && p.to === "/classement")).filter((p) => !needle || p.label.toLowerCase().includes(needle) || p.hint.toLowerCase().includes(needle)).slice(0, 6).map((p) => ({ kind: "page" as const, ...p, quote: undefined }));
     return needle ? [...syms, ...pages] : [...pages.slice(0, 5), ...syms.slice(0, 5)];
-  }, [q, quotes]);
+  }, [q, quotes, status]);
   useEffect(() => setIdx(0), [results.length]);
   if (!open) return null;
   const go = (i: number) => {

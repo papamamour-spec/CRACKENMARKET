@@ -64,7 +64,13 @@ export function buildRouter(s: Services): Router {
   const guard = requireAuth(s.auth);
 
   // ---------- Santé ----------
-  r.get("/health", (_req, res) => res.json({ ok: true, ...s.market.status() }));
+  r.get("/health", (_req, res) => res.json({ ok: true, privateMode: config.privateMode, ...s.market.status() }));
+  /** Mode privé : fonctions communautaires et guichet SGI désactivés. */
+  const privateOff = (_req: unknown, res: { status(n: number): { json(b: unknown): void } }, next: () => void) => {
+    if (config.privateMode) return res.status(403).json({ error: "Fonction désactivée : plateforme privée (PRIVATE_MODE)" });
+    next();
+  };
+  r.use(["/social", "/sgi/console", "/account/referrals"], privateOff);
 
   // ---------- Auth ----------
   const registerSchema = z.object({
@@ -77,6 +83,7 @@ export function buildRouter(s: Services): Router {
   r.post(
     "/auth/register",
     asyncHandler((req, res) => {
+      if (config.privateMode) throw Object.assign(new Error("Plateforme privée : les inscriptions sont fermées"), { status: 403 });
       const body = registerSchema.parse(req.body);
       const role = body.role === "admin" ? "investor" : (body.role ?? "investor");
       const user = s.auth.register(body.email, body.password, body.fullName, role, body.referralCode || undefined);
@@ -801,7 +808,7 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       const body = advisorySchema.parse(req.body);
       const staffCode = s.sgi.staffSgiCode(req.auth!.sub);
-      const asSgi = !!staffCode && req.auth!.role === "sgi" && body.asSgi !== false;
+      const asSgi = !config.privateMode && !!staffCode && req.auth!.role === "sgi" && body.asSgi !== false;
       const view = s.advisory.create(req.auth!.sub, asSgi ? "sgi" : "client", asSgi ? staffCode : null, { ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) });
       res.status(201).json(view);
     }),

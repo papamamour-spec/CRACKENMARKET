@@ -103,7 +103,10 @@ docker compose up --build
 Variables d'environnement (voir `server/.env.example`) : `PORT`, `JWT_SECRET`,
 `DATA_PROVIDER` (`auto` | `live` | `simulation`), `LIVE_POLL_INTERVAL_MS`, `SIM_TICK_INTERVAL_MS`,
 `DB_PATH`, `CORS_ORIGIN`, `HISTORY_DAYS` (profondeur d'historique en séances, 5 ans soit 1 305 par défaut ;
-une base plus courte est prolongée au démarrage), `ADMIN_EMAIL` et `ADMIN_PASSWORD` (compte administrateur
+une base plus courte est prolongée au démarrage), `PRIVATE_MODE` (`1` par défaut : plateforme réservée à son
+propriétaire, inscriptions fermées, un seul compte administrateur et analyste, classement, profils publics,
+parrainage et guichet SGI désactivés, page publique remplacée par la connexion ; `0` pour rouvrir),
+`ADMIN_EMAIL` et `ADMIN_PASSWORD` (compte administrateur
 créé au démarrage quand les deux sont définies ; sans elles, aucun compte admin n'existe et le rôle
 « admin » n'est pas attribuable depuis l'inscription).
 
