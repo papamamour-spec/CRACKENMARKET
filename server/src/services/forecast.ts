@@ -6,6 +6,7 @@ import type { MarketService } from "./market.js";
 import type { LearningService } from "./learning.js";
 import type { CorporateService } from "./corporate.js";
 import type { BocService } from "./boc.js";
+import type { PanelService } from "./panel.js";
 
 const TTL_MS = 15 * 60_000;
 
@@ -31,6 +32,7 @@ export class ForecastService extends EventEmitter {
   private learning: LearningService | null = null;
   private corporate: CorporateService | null = null;
   private boc: BocService | null = null;
+  private panel: PanelService | null = null;
 
   constructor(
     private readonly market: MarketService,
@@ -55,6 +57,12 @@ export class ForecastService extends EventEmitter {
     const stale = () => { for (const e of this.cache.values()) e.at = 0; };
     corporate?.on("change", stale);
     boc?.on("boc", stale);
+  }
+
+  /** Modèle de panel : troisième modèle de l'ensemble. */
+  attachPanel(p: PanelService): void {
+    this.panel = p;
+    p.on("panel", () => { for (const e of this.cache.values()) e.at = 0; });
   }
 
   /** Réchauffe progressivement le cache (une valeur à la fois pour ne pas bloquer l'API). */
@@ -89,7 +97,8 @@ export class ForecastService extends EventEmitter {
     const news = this.advisor.newsContext().get(symbol);
     const official = this.boc?.series(symbol, candles.map((c) => c.ts)) ?? null;
     const upcomingDividend = this.corporate?.dividendInfo(symbol, candles[candles.length - 1]?.close ?? 0).next ?? null;
-    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined, params: this.learning?.params(symbol), official, upcomingDividend });
+    const panel = this.panel?.forSymbol(symbol) ?? null;
+    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined, params: this.learning?.params(symbol), official, upcomingDividend, panel });
     this.cache.set(symbol, { at: Date.now(), f });
     if (this.learning && candles.length) this.learning.log(f, candles[candles.length - 1].ts, "live");
     return f;

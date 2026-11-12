@@ -20,6 +20,8 @@ import type { RadarService, RadarKind } from "../services/radar.js";
 import type { CorporateService } from "../services/corporate.js";
 import type { BocService } from "../services/boc.js";
 import type { EvaluationService } from "../services/evaluation.js";
+import type { FundamentalsService } from "../services/fundamentals.js";
+import type { PanelService } from "../services/panel.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -49,6 +51,8 @@ export interface Services {
   corporate: CorporateService;
   boc: BocService;
   evaluation: EvaluationService;
+  fundamentals: FundamentalsService;
+  panel: PanelService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -422,6 +426,46 @@ export function buildRouter(s: Services): Router {
     s.corporate.removeDividend(Number(req.params.id));
     res.json({ ok: true });
   });
+  // ---------- Fondamentaux et modèle de panel ----------
+  r.get("/market/fundamentals", (_req, res) => res.json({ items: s.fundamentals.all(), status: s.fundamentals.status() }));
+  r.get("/market/fundamentals/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json(s.fundamentals.company(symbol));
+  });
+  const fundamentalSchema = z.object({ symbol: z.string().min(2), period: z.string().min(4).max(12), periodEnd: z.string().nullable().optional(), publishedAt: z.string().nullable().optional(), revenue: z.number().nullable().optional(), netIncome: z.number().nullable().optional(), equity: z.number().nullable().optional(), shares: z.number().positive().nullable().optional(), eps: z.number().nullable().optional(), dps: z.number().nullable().optional(), revenueGrowthPct: z.number().nullable().optional(), netIncomeGrowthPct: z.number().nullable().optional(), url: z.string().url().nullable().optional(), note: z.string().max(500).nullable().optional() });
+  r.post(
+    "/market/fundamentals",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.status(201).json(s.fundamentals.upsert(fundamentalSchema.parse(req.body), req.auth!.sub));
+    }),
+  );
+  r.post(
+    "/market/fundamentals/import",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ text: z.string().min(5).max(200000) }).parse(req.body);
+      res.json(s.fundamentals.importText(body.text, req.auth!.sub));
+    }),
+  );
+  r.post(
+    "/market/fundamentals/scan",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ ...(await s.fundamentals.scan(!!req.body?.fetch)), status: s.fundamentals.status() });
+    }),
+  );
+  r.delete("/market/fundamentals/:id", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    s.fundamentals.remove(Number(req.params.id));
+    res.json({ ok: true });
+  });
+  r.get("/market/panel", (req, res) => res.json(s.panel.summary((String(req.query.horizon ?? "1M") as "1W" | "1M" | "3M"))));
+
   // ---------- Évaluation en marche avant du moteur de prévision ----------
   r.get("/market/evaluation", (_req, res) => res.json({ latest: s.evaluation.latest(), status: s.evaluation.status() }));
   r.get("/market/evaluation/history", (req, res) => res.json(s.evaluation.history(Math.min(100, Number(req.query.limit ?? 20)))));
@@ -435,7 +479,7 @@ export function buildRouter(s: Services): Router {
     guard,
     asyncHandler((req, res) => {
       if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
-      const body = z.object({ sessions: z.number().int().min(60).max(2000).optional(), step: z.number().int().min(1).max(60).optional(), topK: z.number().int().min(1).max(20).optional(), feePct: z.number().min(0).max(10).optional() }).parse(req.body ?? {});
+      const body = z.object({ sessions: z.number().int().min(60).max(2000).optional(), step: z.number().int().min(1).max(60).optional(), topK: z.number().int().min(1).max(20).optional(), feePct: z.number().min(0).max(10).optional(), panel: z.boolean().optional() }).parse(req.body ?? {});
       const started = s.evaluation.run(body);
       res.status(started ? 202 : 409).json({ started, status: s.evaluation.status() });
     }),
@@ -693,6 +737,7 @@ export function buildRouter(s: Services): Router {
     excludedSectors: z.array(z.string()).max(20).optional(),
     excludedSymbols: z.array(z.string().max(16)).max(60).optional(),
     bondSharePct: z.number().min(0).max(80).optional(),
+    returnModel: z.enum(["black_litterman", "views"]).optional(),
   });
   r.post(
     "/advisory/requests",

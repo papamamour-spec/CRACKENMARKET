@@ -15,7 +15,8 @@
  *    nettes de frais de courtage sur la part renouvelée, contre l'indice et le panier équipondéré.
  * Rien ici n'est une garantie : ce sont des mesures passées, calculées sans regarder l'avenir.
  */
-import { forecast, HORIZON_DAYS, type Horizon } from "./forecast.js";
+import { forecast, HORIZON_DAYS, type ForecastInput, type Horizon } from "./forecast.js";
+import { panelModel, type ExtrasAt, type PanelResult } from "./panel.js";
 import type { Candle } from "./indicators.js";
 import { mean, stddev } from "./linalg.js";
 
@@ -32,9 +33,11 @@ export interface EvaluationConfig {
   minHistory: number;
   horizons: Horizon[];
   seed: number;
+  /** inclure le modèle de panel (réentraîné à chaque date sur le seul passé) dans l'ensemble */
+  panel: boolean;
 }
 
-export const DEFAULT_EVALUATION: EvaluationConfig = { sessions: 400, step: 10, topK: 5, feePct: 1.25, minHistory: 200, horizons: ["1W", "1M", "3M"], seed: 7 };
+export const DEFAULT_EVALUATION: EvaluationConfig = { sessions: 400, step: 10, topK: 5, feePct: 1.25, minHistory: 200, horizons: ["1W", "1M", "3M"], seed: 7, panel: true };
 
 export interface Observation {
   ts: number;
@@ -240,6 +243,8 @@ export interface EvaluationInput {
   /** clôture de l'indice composite par date (ms) */
   indexByTs: Map<number, number>;
   config?: Partial<EvaluationConfig>;
+  /** variables de fondamentaux connues à une date, pour le modèle de panel */
+  extrasAt?: ExtrasAt;
   /** appelé après chaque date évaluée (progression) */
   onProgress?: (done: number, total: number) => void;
 }
@@ -258,13 +263,13 @@ export function evaluationDates(candlesBySymbol: Map<string, Candle[]>, config: 
 }
 
 /** Observations prévu / réalisé d'une valeur à une date (aucune donnée postérieure à la date n'est lue). */
-export function observeAt(symbol: string, candles: Candle[], indexByTs: Map<number, number>, ts: number, config: EvaluationConfig): Observation[] {
+export function observeAt(symbol: string, candles: Candle[], indexByTs: Map<number, number>, ts: number, config: EvaluationConfig, panel: PanelResult | null = null): Observation[] {
   let cut = candles.length - 1;
   while (cut >= 0 && candles[cut].ts > ts) cut--;
   if (cut + 1 < config.minHistory) return [];
   const past = candles.slice(0, cut + 1);
   const idx = past.map((c) => indexByTs.get(c.ts) ?? NaN);
-  const f = forecast({ symbol, candles: past, indexCloses: idx.every(Number.isFinite) ? idx : null, seed: config.seed });
+  const f = forecast({ symbol, candles: past, indexCloses: idx.every(Number.isFinite) ? idx : null, seed: config.seed, panel: panelInputFor(panel, symbol) });
   const out: Observation[] = [];
   for (const h of f.horizons) {
     if (!config.horizons.includes(h.horizon)) continue;
@@ -274,6 +279,28 @@ export function observeAt(symbol: string, candles: Candle[], indexByTs: Map<numb
     out.push({ ts, symbol, horizon: h.horizon, expectedPct: h.expectedReturnPct, probUp: h.probUp, p5: h.quantiles.p5, p95: h.quantiles.p95, confidence: h.confidence, realizedPct });
   }
   return out;
+}
+
+/** Prédictions du panel d'une valeur au format attendu par le moteur de prévision. */
+export function panelInputFor(panel: PanelResult | null, symbol: string): ForecastInput["panel"] {
+  const p = panel?.predictions.get(symbol);
+  if (!panel || !p) return null;
+  const out: NonNullable<ForecastInput["panel"]> = {};
+  for (const s of panel.stats) {
+    const v = p[s.horizon];
+    if (v) out[s.horizon] = { relPct: v.relPct, testMaePct: s.testMaePct, naiveMaePct: s.naiveMaePct, contributions: v.contributions };
+  }
+  return out;
+}
+
+/** Modèle de panel entraîné sur les seules données antérieures ou égales à la date. */
+export function panelAt(candlesBySymbol: Map<string, Candle[]>, ts: number, config: EvaluationConfig, extrasAt?: ExtrasAt): PanelResult | null {
+  if (!config.panel) return null;
+  try {
+    return panelModel(candlesBySymbol, ts, { extrasAt, horizons: config.horizons, lookback: 800 });
+  } catch {
+    return null;
+  }
 }
 
 /** Rendements de l'indice à chaque horizon depuis chaque date (clé « ts:horizon »). */
@@ -313,7 +340,8 @@ export function walkForwardEvaluation(input: EvaluationInput): EvaluationReport 
   const obs: Observation[] = [];
   let done = 0;
   for (const ts of dates) {
-    for (const [symbol, candles] of input.candlesBySymbol) obs.push(...observeAt(symbol, candles, input.indexByTs, ts, config));
+    const panel = panelAt(input.candlesBySymbol, ts, config, input.extrasAt);
+    for (const [symbol, candles] of input.candlesBySymbol) obs.push(...observeAt(symbol, candles, input.indexByTs, ts, config, panel));
     input.onProgress?.(++done, dates.length);
   }
   return finalizeReport(obs, input.indexByTs, config, input.candlesBySymbol.size);

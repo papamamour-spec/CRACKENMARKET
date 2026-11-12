@@ -6,6 +6,7 @@ import { fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
 import { HORIZON_LABEL, type ForecastRanking, type Horizon, type LearningSummary } from "../lib/types";
 import { SkeletonCard } from "../components/Skeleton";
 import { EvaluationCard } from "../components/EvaluationCard";
+import { PanelCard } from "../components/PanelCard";
 
 /** Classement des valeurs par rendement attendu (pondéré par la confiance), avec précision mesurée. */
 export function ForecastsPage() {
@@ -86,6 +87,7 @@ export function ForecastsPage() {
             </table>
             <p className="disclaimer">Classement par rendement attendu × confiance. Les prévisions sont probabilistes : l'intervalle à 90 % indique la fourchette dans laquelle le rendement devrait se situer 9 fois sur 10 d'après la volatilité récente ; la précision est le taux de bonne direction mesuré sur des fenêtres passées non vues à l'apprentissage.</p>
           </div>
+          <PanelCard horizon={h} />
           <EvaluationCard analyst={analyst} />
           {learning && (
             <div className="card">

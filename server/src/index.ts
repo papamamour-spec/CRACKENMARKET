@@ -27,6 +27,8 @@ import { RadarService } from "./services/radar.js";
 import { CorporateService } from "./services/corporate.js";
 import { BocService } from "./services/boc.js";
 import { EvaluationService } from "./services/evaluation.js";
+import { FundamentalsService } from "./services/fundamentals.js";
+import { PanelService } from "./services/panel.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -74,8 +76,16 @@ async function main(): Promise<void> {
   radar.start();
   forecasts.start();
   learning.start();
+  const fundamentals = new FundamentalsService(db, market);
+  fundamentals.attach(documents, news, quality);
+  const panel = new PanelService(market);
+  panel.attach(corporate, fundamentals);
+  forecasts.attachPanel(panel);
+  panel.start();
+  advisory.attachQuality(quality);
   const evaluation = new EvaluationService(db, market);
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation };
+  evaluation.attachExtras(panel.extrasAt);
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

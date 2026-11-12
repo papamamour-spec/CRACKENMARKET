@@ -41,9 +41,11 @@ export interface HorizonForecast {
   /** précision mesurée en test chronologique (30 % des observations) */
   accuracy: { hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; samples: number };
   /** apprentissage continu : précision en conditions réelles et réglages appris */
-  learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
+  learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null; panel?: number | null }; updatedAt: number };
   confidence: number; // 0..1
-  models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
+  models: { ridgePct: number; arPct: number; panelPct: number | null; newsAdjustmentPct: number; weights: { ridge: number; ar: number; panel: number } };
+  /** contributions du modèle de panel (facteurs transversaux), si disponible */
+  panelContributions: Contribution[] | null;
   contributions: Contribution[];
   explanations: string[];
   /** détachement de dividende attendu dans l'horizon : les objectifs de cours en sont diminués, le rendement total non */
@@ -187,7 +189,7 @@ export interface ModelParams {
   /** poids de l'actualité (renforcé si elle réduit l'erreur réalisée, affaibli sinon) */
   newsFactor: number;
   /** erreur absolue réalisée (EWMA, en %) de chaque modèle, null tant qu'aucune prévision n'est résolue */
-  modelErr: { ridge: number | null; ar: number | null };
+  modelErr: { ridge: number | null; ar: number | null; panel?: number | null };
   /** statistiques réelles cumulées */
   resolved: number;
   hits: number;
@@ -197,7 +199,7 @@ export interface ModelParams {
   updatedAt: number;
 }
 
-export const DEFAULT_PARAMS: ModelParams = { version: 0, lambda: 5, volScale: 1, bias: 0, newsFactor: 0.5, modelErr: { ridge: null, ar: null }, resolved: 0, hits: 0, sumAbsErr: 0, covered: 0, sumBrier: 0, updatedAt: 0 };
+export const DEFAULT_PARAMS: ModelParams = { version: 0, lambda: 5, volScale: 1, bias: 0, newsFactor: 0.5, modelErr: { ridge: null, ar: null, panel: null }, resolved: 0, hits: 0, sumAbsErr: 0, covered: 0, sumBrier: 0, updatedAt: 0 };
 
 export interface ForecastInput {
   symbol: string;
@@ -212,6 +214,8 @@ export interface ForecastInput {
   official?: OfficialSeries | null;
   /** prochain détachement de dividende connu : date d'effet et montant net par action */
   upcomingDividend?: { exDate: number; amount: number } | null;
+  /** modèle de panel (engine/panel.ts) : rendement relatif attendu et erreur de test, par horizon */
+  panel?: Partial<Record<Horizon, { relPct: number; testMaePct: number | null; naiveMaePct: number | null; contributions?: Contribution[] }>> | null;
   seed?: number;
 }
 
@@ -320,9 +324,20 @@ export function forecast(input: ForecastInput): Forecast {
     const ea = blend(arTestMae, P.modelErr.ar);
     const wr = er != null && er > 0 ? 1 / er : 1;
     const wa = ea != null && ea > 0 ? 1 / ea : 0.6;
-    const wsum = wr + wa;
-    const weights = { ridge: Math.round((wr / wsum) * 100) / 100, ar: Math.round((wa / wsum) * 100) / 100 };
-    let expected = (ridgePct * wr + arPct * wa) / wsum;
+    // Modèle de panel : rendement relatif à la cote, posé sur la dérive propre de la valeur ; pondéré par
+    // son erreur de test (déjà en points de %) et, en conditions réelles, par son erreur réalisée
+    const pn = input.panel?.[horizon] ?? null;
+    let panelPct: number | null = null;
+    let wp = 0;
+    if (pn) {
+      const pShrink = pn.testMaePct != null && pn.naiveMaePct != null && pn.naiveMaePct > 0 ? Math.max(0.25, Math.min(1, (1.05 - pn.testMaePct / pn.naiveMaePct) / 0.1)) : 0.5;
+      panelPct = drift + pShrink * pn.relPct;
+      const ep = blend(pn.testMaePct != null ? pn.testMaePct / 100 : NaN, P.modelErr.panel ?? null);
+      wp = ep != null && ep > 0 ? 1 / ep : 0.5;
+    }
+    const wsum = wr + wa + wp;
+    const weights = { ridge: Math.round((wr / wsum) * 100) / 100, ar: Math.round((wa / wsum) * 100) / 100, panel: Math.round((wp / wsum) * 100) / 100 };
+    let expected = (ridgePct * wr + arPct * wa + (panelPct ?? 0) * wp) / wsum;
     // Correction de biais apprise (amortie de moitié)
     const biasAdj = P.resolved >= 10 ? P.bias * 0.5 : 0;
     expected += biasAdj;
@@ -364,6 +379,10 @@ export function forecast(input: ForecastInput): Forecast {
       const f = FACTORS.find((x) => x.key === c.factor)!;
       explanations.push(`${c.label} (${f.fmt(c.value)}) ${c.contributionPct > 0 ? "soutient" : "pèse sur"} la prévision : ${c.contributionPct > 0 ? "+" : ""}${c.contributionPct.toFixed(1)} pt`);
     }
+    if (panelPct != null && pn && Math.abs(pn.relPct) >= 0.3) {
+      const top = [...(pn.contributions ?? [])].sort((a, b) => Math.abs(b.contributionPct) - Math.abs(a.contributionPct))[0];
+      explanations.push(`Le modèle de panel (régression commune à la cote) attend ${pn.relPct > 0 ? "un rendement supérieur" : "un rendement inférieur"} à la moyenne des valeurs de ${Math.abs(pn.relPct).toFixed(1)} pt${top && Math.abs(top.contributionPct) >= 0.1 ? `, surtout par ${top.label.toLowerCase()} (${top.contributionPct > 0 ? "+" : ""}${top.contributionPct} pt)` : ""} ; poids ${Math.round(weights.panel * 100)} %`);
+    }
     if (Math.abs(arPct) >= 0.3) explanations.push(`Le modèle autorégressif sur les rendements quotidiens ${arPct > 0 ? "anticipe une poursuite" : "anticipe un essoufflement"} (${arPct > 0 ? "+" : ""}${arPct.toFixed(1)} %)`);
     if (newsAdj !== 0) explanations.push(`Actualité récente ${newsAdj > 0 ? "favorable" : "défavorable"} : ${newsAdj > 0 ? "+" : ""}${newsAdj.toFixed(1)} pt (poids appris ${P.newsFactor.toFixed(2)})`);
     if (Math.abs(biasAdj) >= 0.2) explanations.push(`Correction de biais apprise sur ${P.resolved} prévisions résolues : ${biasAdj > 0 ? "+" : ""}${biasAdj.toFixed(1)} pt`);
@@ -383,7 +402,8 @@ export function forecast(input: ForecastInput): Forecast {
       priceTargets: { p5: target(q(0.05)), p50: target(q(0.5)), p95: target(q(0.95)) },
       accuracy: { hitRate: Math.round(hitRate * 100) / 100, baselineHitRate: Math.round(baselineHitRate * 100) / 100, maePct: Math.round(maePct * 10) / 10, naiveMaePct: Math.round(naiveMaePct * 10) / 10, samples },
       confidence: Math.round(confidence * 100) / 100,
-      models: { ridgePct: Math.round(ridgePct * 10) / 10, arPct: Math.round(arPct * 10) / 10, newsAdjustmentPct: Math.round(newsAdj * 10) / 10, weights },
+      models: { ridgePct: Math.round(ridgePct * 10) / 10, arPct: Math.round(arPct * 10) / 10, panelPct: panelPct != null ? Math.round(panelPct * 10) / 10 : null, newsAdjustmentPct: Math.round(newsAdj * 10) / 10, weights },
+      panelContributions: pn?.contributions ?? null,
       learning: {
         version: P.version,
         resolved: P.resolved,

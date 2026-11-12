@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, del, post } from "../lib/api";
-import { fmtDate, fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
-import { ACTION_KIND_LABEL, type BocStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView } from "../lib/types";
+import { compact, fmtDate, fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
+import { ACTION_KIND_LABEL, type BocStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView, type FundamentalsResponse } from "../lib/types";
 import { useAuth } from "../hooks/useAuth";
 import { useMarket } from "../hooks/useMarket";
 
-type Tab = "boc" | "dividendes" | "capital";
+type Tab = "boc" | "dividendes" | "capital" | "fondamentaux";
 const STATUS_CLASS: Record<string, string> = { proposé: "hold", approuvé: "buy", payé: "strong-buy" };
 
 /**
@@ -31,6 +31,10 @@ export function DataPage() {
   const [divForm, setDivForm] = useState({ symbol: "SNTS", fiscalYear: String(new Date().getUTCFullYear() - 1), gross: "", net: "", exDate: "", paymentDate: "", agmDate: "", status: "proposé", url: "", note: "" });
   const [divText, setDivText] = useState("");
   const [actForm, setActForm] = useState({ symbol: "SNTS", kind: "split", exDate: "", ratio: "10", note: "" });
+  // fondamentaux
+  const [funds, setFunds] = useState<FundamentalsResponse | null>(null);
+  const [fundForm, setFundForm] = useState({ symbol: "SNTS", period: String(new Date().getUTCFullYear() - 1), revenue: "", netIncome: "", equity: "", shares: "", eps: "", dps: "", publishedAt: "", url: "" });
+  const [fundText, setFundText] = useState("");
   const [filter, setFilter] = useState("");
 
   const symbols = useMemo(() => [...quotes.keys()].sort(), [quotes]);
@@ -40,7 +44,26 @@ export function DataPage() {
   };
   const loadBoc = () => api<{ ts: number | null; items: DailyStat[]; status: BocStatus }>("/market/boc").then((r) => { setSession({ ts: r.ts, items: r.items }); setBocStatus(r.status); }).catch(() => {});
   const loadCorp = () => api<{ actions: CorporateActionView[]; dividends: DividendView[]; status: CorporateStatus }>("/market/corporate").then(setCorp).catch(() => {});
-  useEffect(() => { loadBoc(); loadCorp(); }, []);
+  const loadFunds = () => api<FundamentalsResponse>("/market/fundamentals").then(setFunds).catch(() => {});
+  useEffect(() => { loadBoc(); loadCorp(); loadFunds(); }, []);
+  const saveFund = () => run(async () => {
+    const num = (v: string) => (v.trim() ? Number(v.replace(/[ \u00a0]/g, "").replace(",", ".")) : null);
+    const r = await post<{ symbol: string; period: string }>("/market/fundamentals", { symbol: fundForm.symbol, period: fundForm.period, revenue: num(fundForm.revenue), netIncome: num(fundForm.netIncome), equity: num(fundForm.equity), shares: num(fundForm.shares), eps: num(fundForm.eps), dps: num(fundForm.dps), publishedAt: fundForm.publishedAt || null, url: fundForm.url || null });
+    await loadFunds();
+    return `Fondamentaux ${r.symbol} ${r.period} enregistrés : ratios et modèle de panel mis à jour.`;
+  });
+  const importFunds = () => run(async () => {
+    const r = await post<{ imported: unknown[]; rejected: string[] }>("/market/fundamentals/import", { text: fundText });
+    setFundText("");
+    await loadFunds();
+    return `${r.imported.length} période(s) importée(s)${r.rejected.length ? ` · ${r.rejected.length} ligne(s) rejetée(s)` : ""}.`;
+  });
+  const scanFunds = (fetch: boolean) => run(async () => {
+    const r = await post<{ inserted: number; fetched: number; failed: number }>("/market/fundamentals/scan", { fetch });
+    await loadFunds();
+    return `${r.inserted} publication(s) lue(s)${fetch ? ` · ${r.fetched} document(s) téléchargé(s), ${r.failed} injoignable(s)` : ""}.`;
+  });
+  const removeFund = (id: number) => run(async () => { await del(`/market/fundamentals/${id}`); await loadFunds(); return "Enregistrement supprimé."; });
 
   const importBoc = () => run(async () => {
     const r = await post<{ session: number; rows: number; applied: number; unrecognized: number; layout: string[]; layoutSource: string }>("/market/boc/import", { text: bocText, date: bocDate || undefined });
@@ -97,13 +120,14 @@ export function DataPage() {
           <span className="muted">Ce qui nourrit les modèles : bulletin officiel de la cote (transactions, meilleures limites, réservations), dividendes réels et opérations sur le capital. Toute série lue par les prévisions, l'optimiseur et les indicateurs est ajustée de ces opérations.</span>
         </div>
         <div className="row">
-          <div className="seg">{(["boc", "dividendes", "capital"] as Tab[]).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "boc" ? "Bulletin de la cote" : t === "dividendes" ? "Dividendes" : "Capital"}</button>)}</div>
+          <div className="seg">{(["boc", "dividendes", "capital", "fondamentaux"] as Tab[]).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "boc" ? "Bulletin de la cote" : t === "dividendes" ? "Dividendes" : t === "capital" ? "Capital" : "Fondamentaux"}</button>)}</div>
           <input placeholder="Filtrer par symbole" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 150 }} />
         </div>
       </div>
-      <div className="card grid grid-3">
+      <div className="card grid grid-4">
         <div className="kpi"><span className="label">Bulletin de la cote</span><span className="value" style={{ fontSize: 16 }}>{bocStatus ? `${bocStatus.sessions} séance(s)` : "…"}</span><span className="sub muted">{bocStatus?.lastSession ? `dernière : ${fmtDate(bocStatus.lastSession)} (${bocStatus.symbolsLastSession} valeurs)` : "aucune séance"}{bocStatus ? ` · ${bocStatus.sources.length ? `${bocStatus.sources.length} source(s)` : "aucune source (BOC_SOURCES)"}` : ""}</span></div>
         <div className="kpi"><span className="label">Dividendes réels</span><span className="value" style={{ fontSize: 16 }}>{corp ? `${corp.status.dividends} sur ${corp.status.symbolsWithDividends} valeur(s)` : "…"}</span><span className="sub muted">rendement réel, calendrier et ajustement des séries</span></div>
+        <div className="kpi"><span className="label">Fondamentaux</span><span className="value" style={{ fontSize: 16 }}>{funds ? `${funds.status.records} période(s) · ${funds.status.companies} société(s)` : "…"}</span><span className="sub muted">{funds?.status.auto ? `${funds.status.auto} lecture(s) automatique(s) à vérifier` : "PER, actif net, croissance, distribution"}</span></div>
         <div className="kpi"><span className="label">Opérations sur le capital</span><span className="value" style={{ fontSize: 16 }}>{corp ? `${corp.status.actions - corp.status.suspected} confirmée(s)` : "…"}</span><span className={`sub ${corp?.status.suspected ? "down" : "muted"}`}>{corp?.status.suspected ? `${corp.status.suspected} suspectée(s) à confirmer` : "aucune en attente"}</span></div>
       </div>
       {msg && <div className="card" style={{ fontSize: 13 }}>{msg}</div>}
@@ -246,6 +270,68 @@ export function DataPage() {
             </div>
             <button className="btn primary sm" style={{ marginTop: 8 }} disabled={busy || !actForm.exDate || !(Number(actForm.ratio) > 0)} onClick={saveAction}>Enregistrer</button>
             <p className="disclaimer" style={{ marginTop: 8 }}>Les cours antérieurs à la date d'effet sont divisés par k (fractionnement), multipliés par k (regroupement) ou ramenés à k / (k + 1) (attribution), les volumes à l'inverse. Les cours affichés sur les graphiques restent ceux réellement cotés sauf bascule « Cours ajustés ».</p>
+          </div>
+        </div>
+      )}
+      {tab === "fondamentaux" && (
+        <div className="two-col" style={{ gridTemplateColumns: "3fr 2fr" }}>
+          <div className="card">
+            <div className="card-head">
+              <h3>Fondamentaux par société</h3>
+              <div className="row">
+                <button className="btn sm" disabled={busy} onClick={() => scanFunds(false)}>Lire les publications collectées</button>
+                <button className="btn sm" disabled={busy} onClick={() => scanFunds(true)} title="Télécharge le corps des documents (PDF ou HTML) non encore lus">Lire avec téléchargement</button>
+              </div>
+            </div>
+            {funds && funds.items.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead><tr><th className="left">Valeur</th><th>Exercice</th><th>PER</th><th>Rdt bénéf.</th><th>P/B</th><th>ROE</th><th>Croiss. RN</th><th>Marge</th><th>Distrib.</th><th className="left">Dernière période</th></tr></thead>
+                  <tbody>
+                    {funds.items.filter((c) => !filter || c.symbol.includes(filter.toUpperCase())).map((c) => (
+                      <tr key={c.symbol}>
+                        <td><Link to={`/valeur/${c.symbol}`} className="sym">{c.symbol}<small>{c.name}</small></Link></td>
+                        <td className="mono">{c.metrics.annualPeriod ?? "—"}</td>
+                        <td className="mono">{c.metrics.per ?? "—"}</td>
+                        <td className="mono">{c.metrics.earningsYieldPct != null ? `${c.metrics.earningsYieldPct} %` : "—"}</td>
+                        <td className="mono">{c.metrics.priceToBook ?? "—"}</td>
+                        <td className="mono">{c.metrics.roePct != null ? `${c.metrics.roePct} %` : "—"}</td>
+                        <td className={`mono ${(c.metrics.netIncomeGrowthPct ?? 0) >= 0 ? "up" : "down"}`}>{c.metrics.netIncomeGrowthPct != null ? fmtPct(c.metrics.netIncomeGrowthPct, 1) : "—"}</td>
+                        <td className="mono">{c.metrics.netMarginPct != null ? `${c.metrics.netMarginPct} %` : "—"}</td>
+                        <td className="mono">{c.metrics.payoutPct != null ? `${c.metrics.payoutPct} %` : "—"}</td>
+                        <td className="left muted" style={{ fontSize: 11 }}>{c.records[0] ? `${c.records[0].period} · ${c.records[0].status} · ${c.records[0].source}` : "—"} {c.records[0] && <button className="btn sm" disabled={busy} onClick={() => removeFund(c.records[0].id)}>Supprimer</button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="muted">Aucune publication structurée : lancez la lecture des documents collectés ou saisissez les chiffres d'un exercice.</p>}
+            {funds && funds.items.length > 0 && <p className="muted" style={{ fontSize: 11 }}>Montants en FCFA. Le rendement bénéficiaire (1 / PER) connu à chaque date entre dans le modèle de panel ; une lecture automatique (statut « auto ») ne remplace jamais une saisie d'analyste.</p>}
+          </div>
+          <div className="grid">
+            <div className="card">
+              <h3>Saisir un exercice</h3>
+              <div className="grid grid-2" style={{ gap: 8 }}>
+                {field("Valeur", <select value={fundForm.symbol} onChange={(e) => setFundForm({ ...fundForm, symbol: e.target.value })}>{symbols.map((s) => <option key={s}>{s}</option>)}</select>)}
+                {field("Période (2025, S1 2025, T3 2025)", <input value={fundForm.period} onChange={(e) => setFundForm({ ...fundForm, period: e.target.value })} />)}
+                {field("Chiffre d'affaires (FCFA)", <input value={fundForm.revenue} onChange={(e) => setFundForm({ ...fundForm, revenue: e.target.value })} placeholder="1 650 000 000 000" />)}
+                {field("Résultat net (FCFA)", <input value={fundForm.netIncome} onChange={(e) => setFundForm({ ...fundForm, netIncome: e.target.value })} />)}
+                {field("Capitaux propres (FCFA)", <input value={fundForm.equity} onChange={(e) => setFundForm({ ...fundForm, equity: e.target.value })} />)}
+                {field("Actions en circulation", <input value={fundForm.shares} onChange={(e) => setFundForm({ ...fundForm, shares: e.target.value })} placeholder="sinon profil d'émetteur" />)}
+                {field("BPA (FCFA)", <input value={fundForm.eps} onChange={(e) => setFundForm({ ...fundForm, eps: e.target.value })} />)}
+                {field("Dividende par action (FCFA)", <input value={fundForm.dps} onChange={(e) => setFundForm({ ...fundForm, dps: e.target.value })} />)}
+                {field("Date de publication", <input type="date" value={fundForm.publishedAt} onChange={(e) => setFundForm({ ...fundForm, publishedAt: e.target.value })} />)}
+                {field("Source (URL)", <input value={fundForm.url} onChange={(e) => setFundForm({ ...fundForm, url: e.target.value })} placeholder="https://…" />)}
+              </div>
+              <button className="btn primary sm" style={{ marginTop: 8 }} disabled={busy || !fundForm.period || !(fundForm.revenue || fundForm.netIncome || fundForm.equity || fundForm.eps || fundForm.dps)} onClick={saveFund}>Enregistrer</button>
+            </div>
+            <div className="card">
+              <h3>Import en bloc</h3>
+              <p className="muted" style={{ fontSize: 12 }}>Une ligne par période : symbole ; période ; chiffre d'affaires ; résultat net ; capitaux propres ; actions ; BPA ; dividende ; date de publication ; source.</p>
+              <textarea rows={5} value={fundText} onChange={(e) => setFundText(e.target.value)} placeholder="SNTS;2025;1650000000000;312000000000;1100000000000;100000000;3120;1750;2026-03-12;brvm" style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} />
+              <button className="btn sm" style={{ marginTop: 8 }} disabled={busy || !fundText.trim()} onClick={importFunds}>Importer</button>
+              <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Exemple de montant : {compact(1_650_000_000_000)} FCFA.</p>
+            </div>
           </div>
         </div>
       )}

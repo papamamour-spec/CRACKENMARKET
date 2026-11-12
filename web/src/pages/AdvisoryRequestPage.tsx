@@ -19,7 +19,7 @@ export function AdvisoryRequestPage() {
   const isSgi = user?.role === "sgi";
   const [sectors, setSectors] = useState<string[]>([]);
   const [form, setForm] = useState({ capital: 5_000_000, objective: "balanced", horizonMonths: 36, riskTolerance: 3, preferredSectors: [] as string[], constraints: "", clientLabel: "" });
-  const [target, setTarget] = useState({ targetYieldPct: 0, maxLines: 8, maxWeightPct: 25, excludedSectors: [] as string[], bondSharePct: -1 });
+  const [target, setTarget] = useState({ targetYieldPct: 0, maxLines: 8, maxWeightPct: 25, excludedSectors: [] as string[], bondSharePct: -1, returnModel: "black_litterman" as "black_litterman" | "views" });
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [newHolding, setNewHolding] = useState<{ symbol: string; quantity: number }>({ symbol: "SNTS", quantity: 100 });
   const [preview, setPreview] = useState<AdvisoryReport | null>(null);
@@ -50,7 +50,7 @@ export function AdvisoryRequestPage() {
     setHoldings(p.positions.map((x) => ({ symbol: x.symbol, quantity: x.quantity, avgPrice: x.avgPrice ?? undefined })));
   };
 
-  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors, bondSharePct: target.bondSharePct >= 0 ? target.bondSharePct : undefined });
+  const body = () => ({ ...form, holdings, clientLabel: isSgi ? form.clientLabel : undefined, targetYieldPct: target.targetYieldPct > 0 ? target.targetYieldPct : undefined, maxLines: target.maxLines, maxWeightPct: target.maxWeightPct, excludedSectors: target.excludedSectors, bondSharePct: target.bondSharePct >= 0 ? target.bondSharePct : undefined, returnModel: target.returnModel });
   const doPreview = async () => {
     setBusy(true);
     setMsg(null);
@@ -125,6 +125,14 @@ export function AdvisoryRequestPage() {
               <div className="field"><label>Nombre de lignes max. : {target.maxLines}</label><div className="range"><span className="muted">2</span><input type="range" min={2} max={15} value={target.maxLines} onChange={(e) => setTarget({ ...target, maxLines: Number(e.target.value) })} /><span className="muted">15</span></div></div>
               <div className="field"><label>Part en obligations : {target.bondSharePct < 0 ? "selon mon profil" : `${target.bondSharePct} %`}</label><div className="range"><span className="muted">auto</span><input type="range" min={-1} max={70} step={1} value={target.bondSharePct} onChange={(e) => setTarget({ ...target, bondSharePct: Number(e.target.value) })} /><span className="muted">70 %</span></div><span className="muted" style={{ fontSize: 11 }}>Emprunts d'État UEMOA, BOAD, entreprises : revenu fixe et capital remboursé à l'échéance.</span></div>
               <div className="field"><label>Poids max. par valeur : {target.maxWeightPct} %</label><div className="range"><span className="muted">5</span><input type="range" min={5} max={60} step={5} value={target.maxWeightPct} onChange={(e) => setTarget({ ...target, maxWeightPct: Number(e.target.value) })} /><span className="muted">60</span></div></div>
+            </div>
+            <div className="field">
+              <label>Rendements attendus de l'optimiseur</label>
+              <div className="seg">
+                <button type="button" className={target.returnModel === "black_litterman" ? "active" : ""} onClick={() => setTarget({ ...target, returnModel: "black_litterman" })}>Black-Litterman (recommandé)</button>
+                <button type="button" className={target.returnModel === "views" ? "active" : ""} onClick={() => setTarget({ ...target, returnModel: "views" })}>Prévisions brutes</button>
+              </div>
+              <span className="muted" style={{ fontSize: 11 }}>Black-Litterman part de l'équilibre du marché et ne s'en écarte qu'en proportion de la confiance des prévisions : allocations plus stables, moins extrêmes.</span>
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
               <label>Secteurs exclus</label>

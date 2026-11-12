@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import type { DB } from "../db/index.js";
 import { INSTRUMENTS } from "../data/instruments.js";
-import { DEFAULT_EVALUATION, evaluationDates, finalizeReport, observeAt, walkForwardEvaluation, type EvaluationConfig, type EvaluationReport, type Observation } from "../engine/evaluation.js";
+import { DEFAULT_EVALUATION, evaluationDates, finalizeReport, observeAt, panelAt, walkForwardEvaluation, type EvaluationConfig, type EvaluationReport, type Observation } from "../engine/evaluation.js";
+import type { ExtrasAt } from "../engine/panel.js";
 import type { Candle } from "../engine/indicators.js";
 import type { MarketService } from "./market.js";
 
@@ -34,8 +35,15 @@ export class EvaluationService extends EventEmitter {
   private running: EvaluationStatus["running"] = null;
   private timer: NodeJS.Timeout | null = null;
 
+  private extrasAt: ExtrasAt | undefined;
+
   constructor(private readonly db: DB, private readonly market: MarketService) {
     super();
+  }
+
+  /** Variables de fondamentaux connues à une date (service du panel), pour une évaluation sans fuite du futur. */
+  attachExtras(extrasAt: ExtrasAt): void {
+    this.extrasAt = extrasAt;
   }
 
   private universe(): { candlesBySymbol: Map<string, Candle[]>; indexByTs: Map<number, number> } {
@@ -51,7 +59,7 @@ export class EvaluationService extends EventEmitter {
   /** Évaluation synchrone (script, tests). */
   runSync(config: Partial<EvaluationConfig> = {}, onProgress?: (done: number, total: number) => void): EvaluationReport {
     const u = this.universe();
-    const report = walkForwardEvaluation({ ...u, config, onProgress });
+    const report = walkForwardEvaluation({ ...u, config, onProgress, extrasAt: this.extrasAt });
     this.store(report);
     return report;
   }
@@ -80,7 +88,8 @@ export class EvaluationService extends EventEmitter {
         return;
       }
       try {
-        for (const [symbol, candles] of u.candlesBySymbol) obs.push(...observeAt(symbol, candles, u.indexByTs, ts, config));
+        const panel = panelAt(u.candlesBySymbol, ts, config, this.extrasAt);
+        for (const [symbol, candles] of u.candlesBySymbol) obs.push(...observeAt(symbol, candles, u.indexByTs, ts, config, panel));
       } catch (e) {
         console.warn(`[evaluation] date ${new Date(ts).toISOString().slice(0, 10)} : ${(e as Error).message}`);
       }

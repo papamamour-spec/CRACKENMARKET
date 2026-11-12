@@ -26,6 +26,7 @@ export interface ForecastLogRow {
   abs_err: number | null;
   covered: number | null;
   resolved_at: number | null;
+  panel_pct?: number | null;
 }
 
 export interface LearningStats {
@@ -109,11 +110,11 @@ export class LearningService extends EventEmitter {
   /** Journalise une prévision (ignorée si une prévision du même jour existe déjà). */
   log(f: Forecast, madeAt: number, source: "live" | "backfill" = "live"): number {
     const ins = this.db.prepare(
-      `INSERT OR IGNORE INTO forecast_log(symbol, horizon, made_at, made_day, price, expected_pct, prob_up, p5, p95, ridge_pct, ar_pct, news_adj_pct, params_version, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT OR IGNORE INTO forecast_log(symbol, horizon, made_at, made_day, price, expected_pct, prob_up, p5, p95, ridge_pct, ar_pct, news_adj_pct, params_version, source, panel_pct)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
     let n = 0;
-    for (const h of f.horizons) n += ins.run(f.symbol, h.horizon, madeAt, dayKey(madeAt), f.price, h.expectedReturnPct, h.probUp, h.quantiles.p5, h.quantiles.p95, h.models.ridgePct, h.models.arPct, h.models.newsAdjustmentPct, h.learning.version, source).changes;
+    for (const h of f.horizons) n += ins.run(f.symbol, h.horizon, madeAt, dayKey(madeAt), f.price, h.expectedReturnPct, h.probUp, h.quantiles.p5, h.quantiles.p95, h.models.ridgePct, h.models.arPct, h.models.newsAdjustmentPct, h.learning.version, source, h.models.panelPct).changes;
     return n;
   }
 
@@ -158,6 +159,7 @@ export class LearningService extends EventEmitter {
     const ew = (prev: number | null, x: number) => (prev == null ? x : prev + ALPHA * (x - prev));
     p.modelErr.ridge = ew(p.modelErr.ridge, Math.abs(realized - r.ridge_pct));
     p.modelErr.ar = ew(p.modelErr.ar, Math.abs(realized - r.ar_pct));
+    if (r.panel_pct != null) p.modelErr.panel = ew(p.modelErr.panel ?? null, Math.abs(realized - r.panel_pct));
     // biais : EWMA démarrant à 0 (une seule prévision ne doit pas imposer une correction), borné à ±5 points
     p.bias = Math.max(-5, Math.min(5, p.bias + ALPHA * (realized - r.expected_pct - p.bias)));
     // Couverture de l'intervalle 90 % : élargir si elle est insuffisante, resserrer si excessive
