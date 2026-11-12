@@ -13,6 +13,7 @@ import type { NewsService } from "../services/news.js";
 import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
+import type { TrackingService } from "../services/tracking.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
@@ -55,6 +56,7 @@ export interface Services {
   fundamentals: FundamentalsService;
   panel: PanelService;
   history: HistoryService;
+  tracking: TrackingService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -746,6 +748,24 @@ export function buildRouter(s: Services): Router {
   );
   r.post("/holdings/import-virtual", guard, (req, res) => res.json(s.holdings.importVirtual(req.auth!.sub)));
   r.get("/holdings/analysis", guard, (req, res) => res.json(s.holdings.analyze(req.auth!.sub)));
+
+  // ---- Suivi réel des portefeuilles recommandés ----
+  r.get("/tracking", guard, (req, res) => res.json({ items: s.tracking.list(req.auth!.sub) }));
+  r.get("/tracking/:id", guard, (req, res) => {
+    const v = s.tracking.view(req.auth!.sub, Number(req.params.id));
+    if (!v) return res.status(404).json({ error: "Portefeuille suivi inconnu" });
+    res.json(v);
+  });
+  const trackingSchema = z.object({ kind: z.enum(["conseil", "cible", "manuel"]), label: z.string().min(1).max(120), capital: z.number().positive(), lines: z.array(z.object({ symbol: z.string().min(2).max(10), weightPct: z.number().min(0).max(100) })).min(1).max(40), sourceId: z.number().int().optional() });
+  r.post(
+    "/tracking",
+    guard,
+    asyncHandler((req, res) => {
+      const body = trackingSchema.parse(req.body);
+      res.status(201).json(s.tracking.create(req.auth!.sub, body));
+    }),
+  );
+  r.delete("/tracking/:id", guard, (req, res) => res.json({ removed: s.tracking.remove(req.auth!.sub, Number(req.params.id)) }));
   r.post(
     "/holdings/analysis",
     guard,

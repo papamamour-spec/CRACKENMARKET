@@ -13,6 +13,9 @@ import { applyBlackLitterman, type BLApplied, type BLLine } from "../engine/blac
 import { optimize, type OptimizationResult } from "../engine/optimizer.js";
 import type { Forecast } from "../engine/forecast.js";
 import { targetBondSharePct, type BondAllocationLine, type BondService } from "./bonds.js";
+import { cvarLimitFor } from "../engine/riskmodel.js";
+import { oneWayCostRate } from "../engine/costs.js";
+import { buildRiskContext, liquidityCaps, riskReport, type RiskReport } from "./risk.js";
 
 /** Taux sans risque annuel de référence (obligations d'État UEMOA, indicatif) : RISK_FREE_RATE=0.06 */
 export const RISK_FREE_RATE = Number(process.env.RISK_FREE_RATE ?? 0.06);
@@ -87,6 +90,9 @@ export interface OptimizationSummary {
   notes: string[];
   returnModel: "black_litterman" | "views";
   blackLitterman: { delta: number; tau: number; lines: BLLine[]; skipped: string[] } | null;
+  /** rendement net des coûts d'entrée amortis sur l'horizon */
+  netExpectedAnnualReturnPct: number;
+  riskModel: "factoriel" | "échantillon";
 }
 
 export interface AllocationLine {
@@ -127,6 +133,8 @@ export interface AdvisoryReport {
   newsContext: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
   /** Optimisation moyenne-variance : cible, faisabilité, frontière efficiente */
   optimization: OptimizationSummary;
+  /** Risque : modèle factoriel, perte (CVaR), liquidité, coûts, tests de résistance */
+  risk: RiskReport | null;
   /** Prévisions probabilistes des valeurs retenues */
   forecasts: LineForecast[];
   /** Poche obligataire (emprunts d'État, BOAD, entreprises) */
@@ -284,17 +292,26 @@ export class AdvisoryService extends EventEmitter {
     }
     const rawAssets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: this.expectedAnnualReturn(r, fcMap.get(r.symbol), declared.horizonMonths), dividendYield: r.dividendYield / 100, price: r.price }));
     const returnModel: AdvisoryInput["returnModel"] = input.returnModel ?? "black_litterman";
+    // modèle de risque factoriel (marché, taille, rendement, secteurs) mélangé à l'échantillon
+    const riskCtx = buildRiskContext(this.market, returnsBySymbol, (s) => this.marketCap(s, this.market.price(s) || INSTRUMENT_MAP.get(s)!.refPrice));
+    const covOpt = riskCtx.covariance ? { covariance: riskCtx.covariance } : {};
     let bl: BLApplied | null = null;
     if (returnModel === "black_litterman") {
       const caps = new Map(rawAssets.map((a) => [a.symbol, this.marketCap(a.symbol, a.price)]));
       const conf = new Map(rawAssets.map((a) => { const fc = fcMap.get(a.symbol); return [a.symbol, fc ? 0.2 + 0.6 * fc.horizons[2].confidence : 0.3]; }));
-      bl = applyBlackLitterman(rawAssets, returnsBySymbol, caps, conf, RISK_FREE_RATE);
+      bl = applyBlackLitterman(rawAssets, returnsBySymbol, caps, conf, RISK_FREE_RATE, covOpt);
     }
     const assets = bl ? bl.assets : rawAssets;
     const target = input.targetYieldPct != null && input.targetYieldPct > 0 ? input.targetYieldPct / 100 : null;
+    // liquidité (plafond par valeur selon les capitaux échangés), limite de perte (CVaR selon la tolérance), coûts de rotation depuis l'existant
+    const maxWeightBySymbol = liquidityCaps(input.capital, rawAssets.map((a) => a.symbol), (s) => this.market.price(s) || INSTRUMENT_MAP.get(s)!.refPrice);
+    const currentWeights: Record<string, number> = {};
+    for (const p of positions) currentWeights[p.symbol] = (p.quantity * p.currentPrice) / input.capital;
+    const cvarLimit = cvarLimitFor(tol);
+    const horizonYearsOpt = Math.max(0.25, declared.horizonMonths / 12);
     let opt: OptimizationResult | null = null;
     try {
-      opt = optimize(assets, returnsBySymbol, { maxWeight, maxSectorWeight, maxLines, investedMax, excludedSectors, excludedSymbols }, target, RISK_FREE_RATE);
+      opt = optimize(assets, returnsBySymbol, { maxWeight, maxSectorWeight, maxLines, investedMax, excludedSectors, excludedSymbols, maxWeightBySymbol, cvarLimit, turnover: { current: currentWeights, costPerSide: oneWayCostRate(), horizonYears: horizonYearsOpt } }, target, RISK_FREE_RATE, covOpt);
     } catch (e) {
       opt = null;
     }
@@ -421,7 +438,34 @@ export class AdvisoryService extends EventEmitter {
       notes: opt ? [...opt.notes] : ["Optimiseur indisponible : allocation heuristique par score."],
       returnModel,
       blackLitterman: bl ? { delta: bl.delta, tau: bl.tau, lines: bl.lines, skipped: bl.skipped } : null,
+      netExpectedAnnualReturnPct: r1(usedOpt ? opt!.netExpectedReturn * 100 : annualized),
+      riskModel: riskCtx.model ? "factoriel" : "échantillon",
     };
+    // ---- Risque : perte, liquidité, coûts, tests de résistance ----
+    let risk: RiskReport | null = null;
+    try {
+      const tradedAmount = allocation.reduce((a, l) => a + Math.abs(l.amount - (positions.find((p) => p.symbol === l.symbol)?.quantity ?? 0) * l.price), 0);
+      risk = riskReport({
+        ctx: riskCtx,
+        lines: allocation.map((l) => ({ symbol: l.symbol, weight: l.amount / input.capital, amount: l.amount, returns: returnsBySymbol.get(l.symbol) ?? null })),
+        total: input.capital,
+        loss: usedOpt ? opt!.loss : { cvar: 1.645 * vol * Math.sqrt(21 / 252) * (invested / input.capital) * 1.15, var: 1.645 * vol * Math.sqrt(21 / 252) * (invested / input.capital), maxDrawdown: 0, limit: cvarLimit, limited: false },
+        liquidityCapped: usedOpt ? opt!.liquidityCapped : [],
+        bonds: bondAmount > 0 ? { weight: bondAmount / input.capital, duration: bondDuration, convexity: bondDuration * (bondDuration + 1) } : null,
+        turnover: usedOpt ? opt!.turnover : invested / input.capital,
+        costDrag: usedOpt ? opt!.costDrag : (oneWayCostRate() * (invested / input.capital)) / horizonYearsOpt,
+        tradedAmount,
+      });
+      summary.push(`Risque : CVaR à un mois ${risk.loss.cvar95_1mPct} % (perte moyenne des 5 % de pires mois, ≈ ${risk.loss.amount.toLocaleString("fr-FR")} FCFA)${risk.loss.limitPct != null ? `, limite de votre profil ${risk.loss.limitPct} %${risk.loss.limited ? " appliquée" : " respectée"}` : ""} ; covariance ${risk.model.kind === "factoriel" ? `factorielle (${risk.model.factors.length} facteurs, R² moyen ${Math.round(risk.model.avgR2 * 100)} %)` : "échantillon"}.`);
+      summary.push(`Coûts : ${risk.costs.entryPct} % de frais d'entrée (≈ ${risk.costs.entryCost.toLocaleString("fr-FR")} FCFA, aller-retour ${risk.costs.roundTripPct} %), soit ${risk.costs.annualDragPct} % par an amortis sur l'horizon ; dividendes nets de retenue à la source (${risk.costs.dividendTax.map((t) => `${t.country} ${t.pct} %`).join(", ") || "—"}).`);
+      if (risk.liquidity.capped.length) summary.push(`Liquidité : ${risk.liquidity.capped.map((c) => `${c.symbol} plafonné à ${c.capPct} %`).join(", ")} pour rester sous ${risk.liquidity.participationPct} % des capitaux échangés sur ${risk.liquidity.exitDays} séances.`);
+      const slow = risk.liquidity.lines.filter((l) => l.daysToExit > risk!.liquidity.exitDays);
+      if (slow.length) warnings.push(`Sortie lente : ${slow.map((l) => `${l.symbol} (${l.daysToExit} séances)`).join(", ")} à ${risk.liquidity.participationPct} % des échanges quotidiens.`);
+      const worst = risk.stress.find((x) => x.key === "pire_fenetre") ?? risk.stress.find((x) => x.key === "krach_20");
+      if (worst) summary.push(`Test de résistance : ${worst.label} → ${worst.totalPct > 0 ? "+" : ""}${worst.totalPct} % (${worst.amount.toLocaleString("fr-FR")} FCFA) sur l'ensemble du capital.`);
+    } catch {
+      risk = null;
+    }
     if (bl && method === "optimizer") summary.push(`Rendements attendus selon Black-Litterman : équilibre du marché (capitalisations, aversion au risque ${bl.delta}) corrigé par les prévisions en proportion de leur confiance ; ${bl.lines.length} valeur(s), part moyenne des vues ${Math.round(bl.lines.reduce((a, l) => a + l.viewSharePct, 0) / Math.max(1, bl.lines.length))} %.`);
     if (method === "optimizer") {
       summary.push(`Allocation optimisée (moyenne-variance, covariance sur 300 séances) : ${optimization.expectedAnnualReturnPct} % de rendement annuel attendu pour ${optimization.volatilityPct} % de volatilité (ratio de Sharpe ${optimization.sharpe}, taux sans risque ${optimization.riskFreePct} %).`);
@@ -457,6 +501,7 @@ export class AdvisoryService extends EventEmitter {
       existing,
       newsContext: { marketSentiment: market.score, marketCount: market.count, headlines: market.headlines },
       optimization,
+      risk,
       forecasts: forecastsOut,
       bonds: {
         targetSharePct: targetBondShare,

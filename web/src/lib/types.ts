@@ -446,6 +446,7 @@ export interface AdvisoryReport {
   existing: { diagnostic: Diagnostic; actions: Diagnostic["rebalancing"] } | null;
   newsContext?: { marketSentiment: number; marketCount: number; headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[] };
   optimization?: OptimizationSummary;
+  risk?: RiskReport | null;
   forecasts?: LineForecast[];
   bonds?: BondSleeve;
   summary: string[];
@@ -467,7 +468,20 @@ export interface OptimizationSummary {
   notes: string[];
   returnModel: "black_litterman" | "views";
   blackLitterman: { delta: number; tau: number; lines: BLLine[]; skipped: string[] } | null;
+  netExpectedAnnualReturnPct?: number;
+  riskModel?: "factoriel" | "échantillon";
 }
+export interface StressScenario { key: string; label: string; kind: "historique" | "choc" | "taux"; equityPct: number; bondPct: number; totalPct: number; amount: number; window: { from: number; to: number; indexPct: number } | null; lines: { symbol: string; pct: number; contributionPct: number }[]; note: string }
+export interface RiskReport {
+  model: { kind: "factoriel" | "échantillon"; factors: string[]; observations: number; avgR2: number; blendPct: number };
+  loss: { cvar95_1mPct: number; var95_1mPct: number; maxDrawdownPct: number; limitPct: number | null; limited: boolean; amount: number };
+  liquidity: { participationPct: number; exitDays: number; capped: { symbol: string; capPct: number }[]; lines: { symbol: string; daysToExit: number; dailyValue: number }[] };
+  costs: { entryCost: number; entryPct: number; oneWayPct: number; roundTripPct: number; annualDragPct: number; turnoverPct: number; dividendTax: { country: string; pct: number }[]; fees: { brokeragePct: number; brvmPct: number; dcbrPct: number; vatPct: number; minFee: number } };
+  stress: StressScenario[];
+}
+export interface TrackedStats { days: number; sessions: number; value: number; valueNet: number; returnPct: number; returnNetPct: number; compositePct: number; brvm30Pct: number; alphaCompositePct: number; alphaBrvm30Pct: number; annualizedPct: number | null; maxDrawdownPct: number; volatilityPct: number | null; beatRate: number | null }
+export interface TrackedPortfolio { id: number; kind: "conseil" | "cible" | "manuel"; label: string; createdAt: number; startTs: number; capital: number; cash: number; entryCost: number; lines: { symbol: string; weightPct: number; price: number; quantity: number; amount: number }[]; sourceId: number | null; stats: TrackedStats }
+export interface TrackedView extends TrackedPortfolio { series: { time: number; value: number; portfolioPct: number; benchmarkPct: number; brvm30Pct: number }[] }
 export interface BLLine { symbol: string; marketWeightPct: number; equilibriumPct: number; viewPct: number; posteriorPct: number; confidence: number; viewSharePct: number }
 export interface LineForecast {
   symbol: string;
@@ -596,10 +610,11 @@ export interface PortfolioAnalysis {
   incomeCalendar: { date: number; code: string; kind: "coupon" | "remboursement"; amount: number }[];
   unknownSymbols: string[];
   diagnostic: Diagnostic;
-  risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; topWeightPct: number; hhi: number; concentrationLabel: string };
+  risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; cvar95_1mPct?: number; cvar95_1m?: number; cvarLimitPct?: number; topWeightPct: number; hhi: number; concentrationLabel: string };
+  riskReport?: RiskReport | null;
   forecast: { expected1MPct: number; expected3MPct: number; probUp1M: number; probUp3M: number; amount1M: number; amount3M: number };
   performance: { portfolioPct: Record<string, number | null>; indexPct: Record<string, number | null> };
-  target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[]; keep: { symbol: string; weightPct: number }[]; returnModel?: "black_litterman"; blackLitterman?: { delta: number; lines: BLLine[] } } | null;
+  target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number; bandPct?: number; cost?: number }[]; keep: { symbol: string; weightPct: number }[]; returnModel?: "black_litterman"; blackLitterman?: { delta: number; lines: BLLine[] }; netExpectedAnnualReturnPct?: number; costDragPct?: number; turnoverPct?: number; riskModel?: string; cvar95_1mPct?: number; cvarLimited?: boolean; liquidityCapped?: { symbol: string; capPct: number }[]; rebalancing?: { policy: { absolute: number; relative: number; minTrade: number; reviewMonths: number }; withinBand: { symbol: string; currentPct: number; targetPct: number; bandPct: number }[]; turnoverPct: number; estimatedCost: number; nextReview: number }; weights?: { symbol: string; weightPct: number }[] } | null;
   actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" | "obligations" }[];
   summary: string[];
   warnings: string[];

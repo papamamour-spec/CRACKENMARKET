@@ -5,6 +5,10 @@ import type { BehaviorProfile, PositionRecord } from "../engine/behavior.js";
 import { HORIZON_DAYS, type Forecast } from "../engine/forecast.js";
 import { optimize, shrinkCovariance } from "../engine/optimizer.js";
 import { applyBlackLitterman, type BLLine } from "../engine/blacklitterman.js";
+import { cvarLimitFor, lossMeasures } from "../engine/riskmodel.js";
+import { oneWayCostRate } from "../engine/costs.js";
+import { DEFAULT_BANDS, rebalancePlan, type RebalancePlan } from "../engine/rebalance.js";
+import { buildRiskContext, liquidityCaps, riskReport, type RiskReport } from "./risk.js";
 import { RISK_FREE_RATE } from "./advisory.js";
 import type { AdvisorService } from "./advisor.js";
 import type { ForecastService } from "./forecast.js";
@@ -94,7 +98,9 @@ export interface PortfolioAnalysis {
   incomeCalendar: { date: number; code: string; kind: "coupon" | "remboursement"; amount: number }[];
   unknownSymbols: string[];
   diagnostic: PortfolioDiagnostic;
-  risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; topWeightPct: number; hhi: number; concentrationLabel: string };
+  risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; cvar95_1mPct: number; cvar95_1m: number; cvarLimitPct: number; topWeightPct: number; hhi: number; concentrationLabel: string };
+  /** Modèle factoriel, liquidité, coûts et tests de résistance du portefeuille actuel */
+  riskReport: RiskReport | null;
   forecast: { expected1MPct: number; expected3MPct: number; probUp1M: number; probUp3M: number; amount1M: number; amount3M: number };
   performance: { portfolioPct: Partial<Record<keyof PeriodPerf, number | null>>; indexPct: Partial<Record<keyof PeriodPerf, number | null>> };
   target: {
@@ -104,10 +110,21 @@ export interface PortfolioAnalysis {
     sharpe: number;
     currentExpectedAnnualReturnPct: number;
     currentSharpe: number;
-    trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[];
+    trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number; bandPct: number; cost: number }[];
     keep: { symbol: string; weightPct: number }[];
     returnModel: "black_litterman";
     blackLitterman: { delta: number; lines: BLLine[] };
+    /** rendement net des coûts de rotation amortis, et coûts annualisés */
+    netExpectedAnnualReturnPct: number;
+    costDragPct: number;
+    turnoverPct: number;
+    riskModel: "factoriel" | "échantillon";
+    cvar95_1mPct: number;
+    cvarLimited: boolean;
+    liquidityCapped: { symbol: string; capPct: number }[];
+    /** politique de rééquilibrage par bandes */
+    rebalancing: { policy: RebalancePlan["policy"]; withinBand: RebalancePlan["withinBand"]; turnoverPct: number; estimatedCost: number; nextReview: number };
+    weights: { symbol: string; weightPct: number }[];
   } | null;
   actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" | "obligations" }[];
   summary: string[];
@@ -302,6 +319,7 @@ export class HoldingsService {
       });
     }
     const bondsValue = bondLines.reduce((a, l) => a + l.value, 0);
+    const bondConvexity = bondsValue > 0 ? bondLines.reduce((a, l) => { const v = this.bonds!.view(l.code)!; return a + analyzeBond(v, v.quote.price, now).convexity * l.value; }, 0) / bondsValue : 0;
     const positions: PositionRecord[] = held.positions
       .filter((p) => INSTRUMENT_MAP.has(p.symbol.toUpperCase()) && p.quantity > 0)
       .map((p) => {
@@ -400,11 +418,12 @@ export class HoldingsService {
     const returnsBy = new Map<string, number[]>();
     for (const p of positions) {
       const closes = this.market.history(p.symbol, 260).map((c) => c.close);
-      if (closes.length >= 60) returnsBy.set(p.symbol, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
+      if (closes.length >= 60 && closes.every((c) => c > 0)) returnsBy.set(p.symbol, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
     }
     for (const l of bondLines) {
       const closes = this.bonds!.history(l.code, 260).map((c) => c.close);
-      if (closes.length >= 60) returnsBy.set(l.code, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
+      // une ligne sans cours (émission inactive) n'entre pas dans la covariance
+      if (closes.length >= 60 && closes.every((c) => c > 0)) returnsBy.set(l.code, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
     }
     let volatility = 0;
     let beta: number | null = null;
@@ -441,6 +460,8 @@ export class HoldingsService {
     }
     const investedShare = total ? (invested + bondsValue) / total : 0;
     const var95 = 1.645 * volatility * Math.sqrt(HORIZON_DAYS["1M"] / 252);
+    const currentLoss = withRet.length ? lossMeasures(withRet.map((x) => x.w), withRet.map((x) => returnsBy.get(x.p.symbol)!)) : { cvar: 0, var: 0, maxDrawdown: 0, windows: 0 };
+    const cvarLimit = cvarLimitFor(profile.effectiveRiskTolerance);
     const hhi = [...weights, ...bondLines.map((l) => l.weightPct / 100)].reduce((a, w) => a + w * w, 0);
     const topWeight = Math.max(0, ...lines.map((l) => l.weightPct));
     const concentrationLabel = hhi > 0.3 ? "très concentré" : hhi > 0.18 ? "concentré" : hhi > 0.1 ? "modérément diversifié" : "bien diversifié";
@@ -533,6 +554,7 @@ export class HoldingsService {
 
     // ---- Allocation cible (optimiseur) et transactions de rééquilibrage ----
     let target: PortfolioAnalysis["target"] = null;
+    let riskCtx: ReturnType<typeof buildRiskContext> | null = null;
     try {
       const universe = recs.filter((r) => (r.action !== "VENTE" && r.action !== "ÉVITER" && r.fitScore >= 30) || positions.some((p) => p.symbol === r.symbol));
       const retAll = new Map<string, number[]>();
@@ -555,32 +577,35 @@ export class HoldingsService {
       // prime de détention : vendre puis racheter coûte frais de courtage et fiscalité (≈ 3 pts annuels), la cible favorise donc ce qui est déjà en portefeuille
       const HOLD_BONUS = 0.03;
       const rawAssets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: expectedAnnual(r), dividendYield: r.dividendYield / 100, price: r.price }));
+      // modèle de risque factoriel (marché, taille, rendement, secteurs) mélangé à l'échantillon
+      riskCtx = buildRiskContext(this.market, retAll, (s) => this.marketCapOf(s, this.market.price(s) || INSTRUMENT_MAP.get(s)!.refPrice));
+      const covOpt = riskCtx.covariance ? { covariance: riskCtx.covariance } : {};
       // Black-Litterman : les vues (prévisions) sont ramenées vers l'équilibre de marché en proportion de leur confiance
       const caps = new Map(rawAssets.map((a) => [a.symbol, this.marketCapOf(a.symbol, a.price)]));
       const conf = new Map(rawAssets.map((a) => { const fc = fcMap.get(a.symbol); return [a.symbol, fc ? 0.2 + 0.6 * fc.horizons[2].confidence : 0.3]; }));
-      const bl = applyBlackLitterman(rawAssets, retAll, caps, conf, RISK_FREE_RATE);
+      const bl = applyBlackLitterman(rawAssets, retAll, caps, conf, RISK_FREE_RATE, covOpt);
       const assets = bl.assets.map((a) => ({ ...a, expectedReturn: a.expectedReturn + (positions.some((p) => p.symbol === a.symbol) ? HOLD_BONUS : 0) }));
       const cashReserve = tol >= 4 ? 0.1 : tol >= 3 ? 0.15 : 0.3;
       // la poche actions cible = tout sauf la réserve de liquidités et la poche obligataire recommandée
       const equityShare = Math.max(0.1, 1 - cashReserve - targetBondPct / 100);
-      const opt = optimize(assets, retAll, { maxWeight: maxWeight / 100, maxSectorWeight: tol >= 4 ? 0.6 : 0.45, maxLines: tol >= 4 ? 6 : 8, investedMax: equityShare }, null, RISK_FREE_RATE);
+      // liquidité (plafond par valeur), limite de perte (CVaR du profil), coûts de rotation depuis les poids actuels
+      const priceOf = (s: string) => this.market.price(s) || INSTRUMENT_MAP.get(s)!.refPrice;
+      const maxWeightBySymbol = liquidityCaps(total, assets.map((a) => a.symbol), priceOf);
+      const currentWeights: Record<string, number> = {};
+      positions.forEach((p, i) => { currentWeights[p.symbol] = weights[i]; });
+      const horizonYears = Math.max(0.5, profile.declared.horizonMonths / 12);
+      const opt = optimize(assets, retAll, { maxWeight: maxWeight / 100, maxSectorWeight: tol >= 4 ? 0.6 : 0.45, maxLines: tol >= 4 ? 6 : 8, investedMax: equityShare, maxWeightBySymbol, cvarLimit, turnover: { current: currentWeights, costPerSide: oneWayCostRate(), horizonYears } }, null, RISK_FREE_RATE, covOpt);
       if (opt.feasible && opt.weights.length >= 2 && total > 0) {
         const muOf = new Map(assets.map((a) => [a.symbol, a.expectedReturn]));
         const curRet = positions.reduce((a, p, i) => a + weights[i] * ((muOf.get(p.symbol) ?? 0) - HOLD_BONUS), 0) + (1 - investedShare) * RISK_FREE_RATE;
-        const trades: NonNullable<PortfolioAnalysis["target"]>["trades"] = [];
-        const targetW = new Map(opt.weights.map((w) => [w.symbol, w.weight]));
-        const symbols = new Set([...targetW.keys(), ...positions.map((p) => p.symbol)]);
-        for (const sym of symbols) {
-          const price = this.market.price(sym) || INSTRUMENT_MAP.get(sym)!.refPrice;
-          const cur = positions.find((p) => p.symbol === sym);
-          const fromPct = cur ? ((cur.quantity * price) / total) * 100 : 0;
-          const toPct = (targetW.get(sym) ?? 0) * 100;
-          const diff = ((toPct - fromPct) / 100) * total;
-          const qty = Math.floor(Math.abs(diff) / price);
-          if (qty === 0 || Math.abs(toPct - fromPct) < 3) continue; // mouvements < 3 % du portefeuille ignorés (frais)
-          trades.push({ symbol: sym, name: INSTRUMENT_MAP.get(sym)!.name, side: diff > 0 ? "acheter" : "vendre", quantity: qty, amount: r0(qty * price), fromPct: r1(fromPct), toPct: r1(toPct) });
-        }
-        trades.sort((a, b) => (a.side === b.side ? b.amount - a.amount : a.side === "vendre" ? -1 : 1));
+        // rééquilibrage par bandes : on n'agit que sur les lignes sorties de leur bande autour de la cible
+        const plan = rebalancePlan(
+          positions.map((p, i) => ({ symbol: p.symbol, weight: weights[i], price: p.currentPrice })),
+          opt.weights.map((w) => ({ symbol: w.symbol, weight: w.weight, price: priceOf(w.symbol) })),
+          total,
+          DEFAULT_BANDS,
+        );
+        const trades: NonNullable<PortfolioAnalysis["target"]>["trades"] = plan.trades.map((t) => ({ symbol: t.symbol, name: INSTRUMENT_MAP.get(t.symbol)!.name, side: t.side, quantity: t.quantity, amount: t.amount, fromPct: t.fromPct, toPct: t.toPct, bandPct: t.bandPct, cost: t.cost }));
         target = {
           method: "optimizer",
           expectedAnnualReturnPct: r1(opt.expectedReturn * 100),
@@ -592,10 +617,37 @@ export class HoldingsService {
           keep: opt.weights.filter((w) => positions.some((p) => p.symbol === w.symbol)).map((w) => ({ symbol: w.symbol, weightPct: r1(w.weight * 100) })),
           returnModel: "black_litterman",
           blackLitterman: { delta: bl.delta, lines: bl.lines },
+          netExpectedAnnualReturnPct: r1(opt.netExpectedReturn * 100),
+          costDragPct: r2(opt.costDrag * 100),
+          turnoverPct: r1(opt.turnover * 100),
+          riskModel: riskCtx.model ? "factoriel" : "échantillon",
+          cvar95_1mPct: r1(opt.loss.cvar * 100),
+          cvarLimited: opt.loss.limited,
+          liquidityCapped: opt.liquidityCapped.map((c) => ({ symbol: c.symbol, capPct: r1(c.cap * 100) })),
+          rebalancing: { policy: plan.policy, withinBand: plan.withinBand, turnoverPct: plan.turnoverPct, estimatedCost: plan.estimatedCost, nextReview: plan.nextReview },
+          weights: opt.weights.map((w) => ({ symbol: w.symbol, weightPct: r1(w.weight * 100) })),
         };
       }
     } catch {
       target = null;
+    }
+    // ---- Rapport de risque du portefeuille actuel : modèle factoriel, liquidité, coûts, tests de résistance ----
+    let riskRep: RiskReport | null = null;
+    try {
+      if (!riskCtx) riskCtx = buildRiskContext(this.market, returnsBy, (s) => this.marketCapOf(s, this.market.price(s) || INSTRUMENT_MAP.get(s)!.refPrice));
+      riskRep = riskReport({
+        ctx: riskCtx,
+        lines: positions.map((p, i) => ({ symbol: p.symbol, weight: weights[i], amount: p.quantity * p.currentPrice, returns: returnsBy.get(p.symbol) ?? null })),
+        total,
+        loss: { cvar: currentLoss.cvar, var: currentLoss.var, maxDrawdown: currentLoss.maxDrawdown, limit: cvarLimit, limited: false },
+        liquidityCapped: [],
+        bonds: bondsValue > 0 ? { weight: bondsValue / total, duration: avgDuration ?? 0, convexity: bondConvexity } : null,
+        turnover: target ? target.turnoverPct / 100 : 0,
+        costDrag: target ? target.costDragPct / 100 : 0,
+        tradedAmount: 0,
+      });
+    } catch {
+      riskRep = null;
     }
 
     // ---- Actions ordonnées, synthèse, avertissements ----
@@ -632,7 +684,15 @@ export class HoldingsService {
       const trims = lines.filter((l) => l.action.kind === "alléger").length;
       const adds = lines.filter((l) => l.action.kind === "renforcer").length;
       summary.push(`Recommandations ligne par ligne : ${sells} vente(s), ${trims} allègement(s), ${adds} renforcement(s), ${lines.length - sells - trims - adds} à conserver.`);
-      if (target) summary.push(`Portefeuille cible optimisé : ${target.expectedAnnualReturnPct} % de rendement annuel attendu pour ${target.volatilityPct} % de volatilité (Sharpe ${target.sharpe}) contre ${target.currentExpectedAnnualReturnPct} % et ${r1(volatility * 100)} % aujourd'hui (Sharpe ${target.currentSharpe}) ; ${target.trades.length} transaction(s) pour s'en rapprocher.`);
+      if (target) summary.push(`Portefeuille cible optimisé : ${target.expectedAnnualReturnPct} % de rendement annuel attendu pour ${target.volatilityPct} % de volatilité (Sharpe ${target.sharpe}) contre ${target.currentExpectedAnnualReturnPct} % et ${r1(volatility * 100)} % aujourd'hui (Sharpe ${target.currentSharpe}) ; ${target.trades.length} transaction(s) hors bande (≈ ${target.rebalancing.estimatedCost.toLocaleString("fr-FR")} FCFA de frais), ${target.rebalancing.withinBand.length} ligne(s) laissée(s) dans leur bande, prochaine revue le ${new Date(target.rebalancing.nextReview).toLocaleDateString("fr-FR")}.`);
+      if (riskRep) {
+        summary.push(`Risque : CVaR à un mois ${riskRep.loss.cvar95_1mPct} % (≈ ${riskRep.loss.amount.toLocaleString("fr-FR")} FCFA, limite de votre profil ${riskRep.loss.limitPct} %), covariance ${riskRep.model.kind === "factoriel" ? `factorielle (${riskRep.model.factors.length} facteurs)` : "échantillon"}.`);
+        const worst = riskRep.stress.find((x) => x.key === "pire_fenetre") ?? riskRep.stress.find((x) => x.key === "krach_20");
+        if (worst) summary.push(`Test de résistance : ${worst.label} → ${worst.totalPct > 0 ? "+" : ""}${worst.totalPct} % (${worst.amount.toLocaleString("fr-FR")} FCFA).`);
+        const slow = riskRep.liquidity.lines.filter((l) => l.daysToExit > riskRep!.liquidity.exitDays);
+        if (slow.length) warnings.push(`Sortie lente : ${slow.map((l) => `${l.symbol} (${l.daysToExit} séances)`).join(", ")} à ${riskRep.liquidity.participationPct} % des échanges quotidiens.`);
+        if (riskRep.loss.cvar95_1mPct > (riskRep.loss.limitPct ?? 100)) warnings.push(`La perte moyenne des pires mois (${riskRep.loss.cvar95_1mPct} %) dépasse la limite de votre profil (${riskRep.loss.limitPct} %) : la cible optimisée la respecte.`);
+      }
     }
     if (lines.length && topWeight > maxWeight) warnings.push(`${lines[0].symbol} pèse ${topWeight} % du portefeuille : au-delà de ${maxWeight} %, une seule valeur dicte votre performance.`);
     const issuerExposure = new Map<string, number>();
@@ -655,7 +715,8 @@ export class HoldingsService {
       incomeCalendar,
       unknownSymbols,
       diagnostic,
-      risk: { volatilityPct: r1(volatility * 100), beta, maxDrawdown1yPct: r1(maxDd * 100), var95_1mPct: r1(var95 * 100), var95_1m: r0(var95 * total), topWeightPct: topWeight, hhi: r2(hhi), concentrationLabel },
+      risk: { volatilityPct: r1(volatility * 100), beta, maxDrawdown1yPct: r1(maxDd * 100), var95_1mPct: r1(var95 * 100), var95_1m: r0(var95 * total), cvar95_1mPct: r1(currentLoss.cvar * 100), cvar95_1m: r0(currentLoss.cvar * total), cvarLimitPct: r1(cvarLimit * 100), topWeightPct: topWeight, hhi: r2(hhi), concentrationLabel },
+      riskReport: riskRep,
       forecast: { expected1MPct: r1(e1), expected3MPct: r1(e3), probUp1M: r2(phi(e1 / s1)), probUp3M: r2(phi(e3 / s3)), amount1M: r0((invested * e1) / 100), amount3M: r0((invested * e3) / 100) },
       performance: { portfolioPct, indexPct },
       target,

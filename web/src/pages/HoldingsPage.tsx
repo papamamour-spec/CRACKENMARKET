@@ -5,7 +5,8 @@ import { SkeletonCard } from "../components/Skeleton";
 import { useMarket } from "../hooks/useMarket";
 import { api, del, post, put } from "../lib/api";
 import { fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
-import { QUALITY_BAND_CLASS, type BondView, type HeldPortfolio, type HeldPosition, type PortfolioAnalysis, type QualityBand } from "../lib/types";
+import { QUALITY_BAND_CLASS, type BondView, type HeldPortfolio, type HeldPosition, type PortfolioAnalysis, type QualityBand, type TrackedView } from "../lib/types";
+import { RiskPanel } from "../components/RiskPanel";
 
 const ACTION_CLASS: Record<string, string> = { renforcer: "buy", conserver: "hold", alléger: "reduce", vendre: "sell", initier: "strong-buy", diversifier: "hold", liquidités: "hold", obligations: "buy" };
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
@@ -175,7 +176,7 @@ export function HoldingsPage() {
             <div className="kpi"><span className="label">Revenus annuels attendus</span><span className="value up">{fmtFcfa(a.totals.annualIncome)}</span><span className="sub muted">dividendes {fmtFcfa(a.totals.annualDividendIncome)} ({a.totals.dividendYieldPct} %) · coupons {fmtFcfa(a.totals.annualCouponIncome)}{a.bondSleeve.avgYieldPct != null ? ` (rdt actuariel ${a.bondSleeve.avgYieldPct} %, duration ${a.bondSleeve.durationYears})` : ""}</span></div>
             <div className="kpi"><span className="label">Santé du portefeuille</span><div className="gauge"><ScoreBar value={a.diagnostic.healthScore} positive /><span className="mono" style={{ width: 26 }}>{a.diagnostic.healthScore}</span></div><span className="sub muted">diversification {a.diagnostic.diversificationScore}/100 · risque {a.diagnostic.riskScore}/100 · profil {a.profileStyle}</span></div>
             <div className="kpi"><span className="label">Prévision Kraken</span><span className={`value ${signClass(a.forecast.expected3MPct)}`}>{fmtPct(a.forecast.expected3MPct, 1)} à 3 mois</span><span className="sub muted">{fmtPct(a.forecast.expected1MPct, 1)} à 1 mois · probabilité de hausse {Math.round(a.forecast.probUp3M * 100)} % · ≈ {a.forecast.amount3M > 0 ? "+" : ""}{fmtFcfa(a.forecast.amount3M)}</span></div>
-            <div className="kpi"><span className="label">Risque</span><span className="value">{a.risk.volatilityPct} % <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>vol. annuelle</span></span><span className="sub muted">{a.risk.beta != null ? `bêta ${a.risk.beta} · ` : ""}perte max. 1 an {a.risk.maxDrawdown1yPct} % · VaR 95 % 1 mois {fmtFcfa(a.risk.var95_1m)} · {a.risk.concentrationLabel}</span></div>
+            <div className="kpi"><span className="label">Risque</span><span className="value">{a.risk.volatilityPct} % <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>vol. annuelle</span></span><span className="sub muted">{a.risk.beta != null ? `bêta ${a.risk.beta} · ` : ""}perte max. 1 an {a.risk.maxDrawdown1yPct} % · VaR 95 % 1 mois {fmtFcfa(a.risk.var95_1m)}{a.risk.cvar95_1m != null ? ` · CVaR ${fmtFcfa(a.risk.cvar95_1m)} (${a.risk.cvar95_1mPct} %, limite ${a.risk.cvarLimitPct} %)` : ""} · {a.risk.concentrationLabel}</span></div>
           </div>
 
           <div className="two-col">
@@ -298,25 +299,35 @@ export function HoldingsPage() {
             </div>
           )}
 
+          {a.riskReport && (
+            <div className="card">
+              <div className="card-head"><div><h2>Risque, liquidité, coûts et tests de résistance</h2><span className="muted" style={{ fontSize: 12 }}>Portefeuille actuel : covariance factorielle (marché, taille, rendement, secteurs), perte moyenne des pires mois, délai de sortie de chaque ligne, scénarios historiques et chocs.</span></div></div>
+              <RiskPanel r={a.riskReport} total={a.totals.total} />
+            </div>
+          )}
           {a.target && (
             <div className="card">
               <div className="card-head">
-                <div><h2>Portefeuille cible optimisé</h2><span className="muted" style={{ fontSize: 12 }}>Allocation moyenne-variance sous contraintes de votre profil, à partir des prévisions, des dividendes et de la covariance réelle des valeurs ; les titres déjà détenus bénéficient d'une prime (frais et fiscalité d'un aller-retour évités) et les mouvements inférieurs à 3 % du portefeuille sont ignorés.</span></div>
+                <div><h2>Portefeuille cible optimisé</h2><span className="muted" style={{ fontSize: 12 }}>Allocation moyenne-variance sous contraintes de votre profil : rendements Black-Litterman, covariance {a.target.riskModel === "factoriel" ? "factorielle" : "échantillon"}, plafonds de liquidité, limite de perte (CVaR), coûts de rotation amortis sur l'horizon. Rééquilibrage par bandes : on n'agit que sur les lignes sorties de ±{a.target.rebalancing ? `${a.target.rebalancing.policy.absolute * 100} points (ou ${a.target.rebalancing.policy.relative * 100} % du poids cible)` : "3 points"} autour de la cible.</span></div>
+                <FollowTarget a={a} />
               </div>
               <div className="grid grid-3" style={{ gap: 10 }}>
                 <div className="kpi"><span className="label">Aujourd'hui</span><span className="value">{fmtPct(a.target.currentExpectedAnnualReturnPct, 1)} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>/ an</span></span><span className="sub muted">volatilité {a.risk.volatilityPct} % · Sharpe {a.target.currentSharpe}</span></div>
                 <div className="kpi"><span className="label">Cible</span><span className="value up">{fmtPct(a.target.expectedAnnualReturnPct, 1)} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>/ an</span></span><span className="sub muted">volatilité {a.target.volatilityPct} % · Sharpe {a.target.sharpe}</span></div>
-                <div className="kpi"><span className="label">Transactions</span><span className="value">{a.target.trades.length}</span><span className="sub muted">{a.target.trades.filter((t) => t.side === "vendre").length} vente(s), {a.target.trades.filter((t) => t.side === "acheter").length} achat(s){a.target.blackLitterman ? ` · rendements Black-Litterman (aversion au risque ${a.target.blackLitterman.delta}, ${a.target.blackLitterman.lines.length} valeurs)` : ""}</span></div>
+                <div className="kpi"><span className="label">Transactions hors bande</span><span className="value">{a.target.trades.length}</span><span className="sub muted">{a.target.trades.filter((t) => t.side === "vendre").length} vente(s), {a.target.trades.filter((t) => t.side === "acheter").length} achat(s){a.target.rebalancing ? ` · frais ≈ ${fmtFcfa(a.target.rebalancing.estimatedCost)} · rotation ${a.target.rebalancing.turnoverPct} % · prochaine revue ${new Date(a.target.rebalancing.nextReview).toLocaleDateString("fr-FR")}` : ""}{a.target.netExpectedAnnualReturnPct != null ? ` · cible nette de coûts ${fmtPct(a.target.netExpectedAnnualReturnPct, 1)} / an` : ""}{a.target.cvar95_1mPct != null ? ` · CVaR cible ${a.target.cvar95_1mPct} %${a.target.cvarLimited ? " (limite appliquée)" : ""}` : ""}</span></div>
               </div>
               <div className="table-scroll"><table style={{ marginTop: 10 }}>
-                <thead><tr><th className="left">Valeur</th><th className="left">Opération</th><th>Quantité</th><th>Montant</th><th>Poids actuel</th><th>Poids cible</th></tr></thead>
+                <thead><tr><th className="left">Valeur</th><th className="left">Opération</th><th>Quantité</th><th>Montant</th><th>Frais</th><th>Poids actuel</th><th>Poids cible</th><th>Bande</th></tr></thead>
                 <tbody>
                   {a.target.trades.map((t) => (
-                    <tr key={t.symbol}><td><Link to={`/valeur/${t.symbol}`} className="sym">{t.symbol}<small>{t.name}</small></Link></td><td className="left"><span className={`badge ${t.side === "vendre" ? "sell" : "buy"}`}>{t.side}</span></td><td className="mono">{t.quantity}</td><td className="mono">{fmtNum(t.amount)}</td><td className="mono">{t.fromPct} %</td><td className="mono">{t.toPct} %</td></tr>
+                    <tr key={t.symbol}><td><Link to={`/valeur/${t.symbol}`} className="sym">{t.symbol}<small>{t.name}</small></Link></td><td className="left"><span className={`badge ${t.side === "vendre" ? "sell" : "buy"}`}>{t.side}</span></td><td className="mono">{t.quantity}</td><td className="mono">{fmtNum(t.amount)}</td><td className="mono muted">{t.cost != null ? fmtNum(t.cost) : "—"}</td><td className="mono">{t.fromPct} %</td><td className="mono">{t.toPct} %</td><td className="mono muted">{t.bandPct != null ? `± ${t.bandPct}` : "—"}</td></tr>
                   ))}
+                  {a.target.trades.length === 0 && <tr><td colSpan={8} className="left muted">Toutes les lignes sont dans leur bande : aucune opération avant la prochaine revue.</td></tr>}
                 </tbody>
               </table></div>
-              <p className="muted" style={{ fontSize: 11 }}>Rapprochez-vous de la cible progressivement, en commençant par les ventes recommandées ; tenez compte des frais de courtage et de la liquidité des titres BRVM.</p>
+              {a.target.rebalancing && a.target.rebalancing.withinBand.length > 0 && <p className="muted" style={{ fontSize: 12 }}>Dans leur bande (aucune opération) : {a.target.rebalancing.withinBand.map((x) => `${x.symbol} ${x.currentPct} % → cible ${x.targetPct} % (± ${x.bandPct})`).join(" · ")}.</p>}
+              {a.target.liquidityCapped && a.target.liquidityCapped.length > 0 && <p className="muted" style={{ fontSize: 12 }}>Plafonds de liquidité : {a.target.liquidityCapped.map((c) => `${c.symbol} ${c.capPct} %`).join(", ")}.</p>}
+              <p className="muted" style={{ fontSize: 11 }}>Rapprochez-vous de la cible progressivement, en commençant par les ventes recommandées ; les frais estimés suivent la grille de courtage de la plateforme (FEES_JSON), la liquidité des titres BRVM borne chaque ligne.</p>
             </div>
           )}
         </>
@@ -324,4 +335,24 @@ export function HoldingsPage() {
       {a && a.lines.length === 0 && a.bondLines.length === 0 && <div className="card"><p className="muted">{a.summary[0]}</p></div>}
     </div>
   );
+}
+
+/** Enregistre la cible optimisée pour la suivre contre les indices, nette de frais. */
+function FollowTarget({ a }: { a: PortfolioAnalysis }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!a.target?.weights?.length) return null;
+  const follow = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const t = await post<TrackedView>("/tracking", { kind: "cible", label: `Cible optimisée · ${fmtFcfa(a.totals.total)}`, capital: a.totals.total, lines: a.target!.weights!.map((w) => ({ symbol: w.symbol, weightPct: w.weightPct })) });
+      setMsg(`Suivi démarré (${t.lines.length} lignes) : voir la page Performance.`);
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="row" style={{ gap: 8 }}><button className="btn sm" disabled={busy} onClick={follow}>Suivre cette cible contre l'indice</button>{msg && <span className="muted" style={{ fontSize: 12 }}>{msg}</span>}</div>;
 }

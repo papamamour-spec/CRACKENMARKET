@@ -486,6 +486,20 @@ function migrate(d: DB): void {
       config TEXT NOT NULL,
       report TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS recommended_portfolios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,               -- conseil | cible | manuel
+      label TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      start_ts INTEGER NOT NULL,        -- séance de départ (début de journée UTC)
+      capital REAL NOT NULL,
+      lines TEXT NOT NULL,              -- JSON [{symbol, weightPct, price, quantity, amount}]
+      cash REAL NOT NULL,
+      entry_cost REAL NOT NULL,
+      source_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_recommended_user ON recommended_portfolios(user_id, created_at);
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
   addColumn(d, "forecast_log", "panel_pct", "REAL");

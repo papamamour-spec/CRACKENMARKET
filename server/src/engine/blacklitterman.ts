@@ -104,11 +104,12 @@ export interface BLApplied {
  * actifs, la covariance est celle (rétrécie) des rendements quotidiens, les poids d'équilibre ceux
  * des capitalisations. Renvoie les actifs avec le rendement postérieur et le détail par ligne.
  */
-export function applyBlackLitterman(assets: Asset[], returnsBySymbol: Map<string, number[]>, marketCaps: Map<string, number>, confidences: Map<string, number>, riskFree: number, opts: { tau?: number; delta?: number } = {}): BLApplied {
+export function applyBlackLitterman(assets: Asset[], returnsBySymbol: Map<string, number[]>, marketCaps: Map<string, number>, confidences: Map<string, number>, riskFree: number, opts: { tau?: number; delta?: number; covariance?: { symbols: string[]; matrix: number[][] } } = {}): BLApplied {
   const usable = assets.filter((a) => (returnsBySymbol.get(a.symbol)?.length ?? 0) >= 60);
   const skipped = assets.filter((a) => !usable.includes(a)).map((a) => a.symbol);
   if (usable.length < 2) return { assets: assets.map((a) => ({ ...a })), lines: [], delta: opts.delta ?? 2.5, tau: opts.tau ?? 0.05, skipped };
-  const cov = shrinkCovariance(usable.map((a) => returnsBySymbol.get(a.symbol)!));
+  const provided = opts.covariance ? (() => { const pos = new Map(opts.covariance!.symbols.map((s, i) => [s, i])); return usable.every((a) => pos.has(a.symbol)) ? usable.map((a) => usable.map((b) => opts.covariance!.matrix[pos.get(a.symbol)!][pos.get(b.symbol)!])) : null; })() : null;
+  const cov = provided ?? shrinkCovariance(usable.map((a) => returnsBySymbol.get(a.symbol)!));
   const bl = blackLitterman(usable.map((a) => ({ symbol: a.symbol, marketCap: marketCaps.get(a.symbol) ?? 0, view: a.expectedReturn, confidence: confidences.get(a.symbol) ?? 0.3 })), cov, riskFree, opts);
   const posterior = new Map(bl.symbols.map((s, i) => [s, bl.posterior[i]]));
   const r1 = (v: number) => Math.round(v * 10) / 10;
