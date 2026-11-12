@@ -8,6 +8,7 @@ import type { DocumentService } from "./documents.js";
 import type { NewsService } from "./news.js";
 import type { QualityService } from "./quality.js";
 import { pdfToText, type BocService } from "./boc.js";
+import { isDisallowed, politeBytes } from "./fetchPolicy.js";
 
 export interface FundamentalInput {
   symbol: string;
@@ -78,6 +79,10 @@ export class FundamentalsService extends EventEmitter {
   private news: NewsService | null = null;
   private quality: QualityService | null = null;
   private lastScan: ScanStatus | null = null;
+  private scanning = false;
+  private pending = false;
+  /** documents dont le corps a déjà été lu (persisté dans meta pour ne pas les retélécharger après redémarrage) */
+  private fetchedUrls: Set<string> | null = null;
 
   constructor(private readonly db: DB, private readonly market: MarketService, private readonly fetchImpl: typeof fetch = fetch) {
     super();
@@ -94,8 +99,49 @@ export class FundamentalsService extends EventEmitter {
     this.documents = documents;
     this.news = news;
     this.quality = quality;
-    documents?.on("documents", () => void this.scan(false));
-    news?.on("news", () => void this.scan(false));
+    // nouvelles publications ou actualités : lecture automatique, corps des documents inclus (en tâche de fond)
+    documents?.on("documents", () => void this.scanInBackground(true));
+    news?.on("news", () => void this.scanInBackground(false));
+  }
+
+  /**
+   * Lecture automatique des publications : au démarrage puis toutes les six heures, le corps des
+   * documents collectés (PDF ou HTML) est téléchargé dans le respect des délais des sites et analysé.
+   * FUNDAMENTALS_FETCH=0 désactive le téléchargement automatique (titres seuls).
+   */
+  start(): void {
+    if (process.env.FUNDAMENTALS_FETCH === "0") return;
+    setTimeout(() => void this.scanInBackground(true), 90_000);
+    setInterval(() => void this.scanInBackground(true), 6 * 3_600_000);
+  }
+
+  /** Une seule lecture à la fois ; une demande arrivée pendant une lecture en déclenche une autre à la fin. */
+  private async scanInBackground(fetchBodies: boolean): Promise<void> {
+    if (this.scanning) { this.pending = this.pending || fetchBodies; return; }
+    this.scanning = true;
+    try {
+      await this.scan(fetchBodies && process.env.FUNDAMENTALS_FETCH !== "0");
+    } catch (e) {
+      console.warn(`[fundamentals] lecture automatique : ${(e as Error).message}`);
+    } finally {
+      this.scanning = false;
+      if (this.pending) { this.pending = false; void this.scanInBackground(true); }
+    }
+  }
+
+  private loadFetched(): Set<string> {
+    if (!this.fetchedUrls) {
+      const row = this.db.prepare("SELECT value FROM meta WHERE key = 'fundamentals_fetched'").get() as { value: string } | undefined;
+      let urls: string[] = [];
+      try { urls = row ? (JSON.parse(row.value) as string[]) : []; } catch { urls = []; }
+      this.fetchedUrls = new Set(urls);
+    }
+    return this.fetchedUrls;
+  }
+
+  private saveFetched(): void {
+    const urls = [...(this.fetchedUrls ?? [])].slice(-3000);
+    this.db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('fundamentals_fetched', ?)").run(JSON.stringify(urls));
   }
 
   private view(r: Row): FinancialRecord {
@@ -188,37 +234,34 @@ export class FundamentalsService extends EventEmitter {
     }
   }
 
+  /** Corps d'un document (PDF ou HTML), lu dans le respect des délais et interdictions des sites. */
   private async fetchBody(url: string): Promise<string> {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 20_000);
-    try {
-      const res = await this.fetchImpl(url, { signal: ctrl.signal, headers: { "user-agent": "CrackenMarket/0.1 (+fondamentaux)" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = new Uint8Array(await res.arrayBuffer());
-      const isPdf = (res.headers.get("content-type") ?? "").includes("pdf") || (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46);
-      const text = isPdf ? await pdfToText(buf) : htmlToPlainText(new TextDecoder().decode(buf));
-      return text.slice(0, 40_000);
-    } finally {
-      clearTimeout(t);
-    }
+    const { bytes, contentType } = await politeBytes(url, { fetchImpl: this.fetchImpl, timeoutMs: 60_000 });
+    const isPdf = contentType.includes("pdf") || (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46);
+    const text = isPdf ? await pdfToText(bytes) : htmlToPlainText(new TextDecoder().decode(bytes));
+    return text.slice(0, 60_000);
   }
 
   /**
    * Parcourt les publications collectées (résultats, états financiers, rapports annuels, communiqués)
    * et l'actualité ; avec `fetchBodies`, télécharge le corps des documents (PDF ou HTML) non encore lus.
    */
-  async scan(fetchBodies = false): Promise<{ inserted: number; fetched: number; failed: number }> {
+  async scan(fetchBodies = false, maxFetch = 60): Promise<{ inserted: number; fetched: number; failed: number }> {
     let inserted = 0;
     let fetched = 0;
     let failed = 0;
     const seen = new Set((this.db.prepare("SELECT url FROM fundamentals WHERE url IS NOT NULL").all() as { url: string }[]).map((r) => r.url));
+    const done = this.loadFetched();
+    // documents les plus récents d'abord, au plus `maxFetch` téléchargements par passage (10 s par requête sur brvm.org)
     for (const kind of ["resultats", "etats_financiers", "rapport_annuel", "communique"] as const) {
-      for (const d of this.documents?.list({ kind, limit: 300 }) ?? []) {
+      const docs = (this.documents?.list({ kind, limit: 300 }) ?? []).sort((a, b) => (b.published_at ?? 0) - (a.published_at ?? 0));
+      for (const d of docs) {
         let text = `${d.title}. ${d.summary ?? ""}`;
-        if (fetchBodies && !seen.has(d.url)) {
+        if (fetchBodies && !seen.has(d.url) && !done.has(d.url) && fetched + failed < maxFetch && !isDisallowed(d.url)) {
           try {
             text += ` ${await this.fetchBody(d.url)}`;
             fetched++;
+            done.add(d.url);
           } catch {
             failed++;
           }
@@ -226,6 +269,7 @@ export class FundamentalsService extends EventEmitter {
         if (this.ingestText(d.symbol, text, d.url, d.source, d.published_at)) inserted++;
       }
     }
+    if (fetched) this.saveFetched();
     for (const item of this.news?.latest(300) ?? []) {
       if (!/resultat|chiffre d'affaires|benefice|produit net bancaire/i.test(`${item.title} ${item.summary ?? ""}`.normalize("NFD").replace(/[̀-ͯ]/g, ""))) continue;
       for (const sym of item.symbols) if (this.ingestText(sym, `${item.title}. ${item.summary ?? ""}`, item.url, item.source, item.published_at)) inserted++;

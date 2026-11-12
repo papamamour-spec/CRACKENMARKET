@@ -43,6 +43,7 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `DIVIDEND_TAX_JSON` | table par défaut | retenue à la source sur dividendes par pays : `{"CI":10,"SN":10,"BF":6}` |
    | `BOC_AUTO` | `1` | collecte automatique des bulletins officiels quotidiens sur brvm.org (`0` pour désactiver) |
    | `HISTORY_COLLECT` | `1` | collecte quotidienne de l'historique réel des cours et des capitalisations sur Sika Finance (`0` pour désactiver) |
+   | `FUNDAMENTALS_FETCH` | `1` | téléchargement automatique du corps des publications pour en extraire les fondamentaux (`0` : titres seuls) |
    | `DOC_COLLECT` | `1` | collecte des rapports, annonces et communiqués des sociétés (`0` pour désactiver) |
    | `BOC_SOURCES` | (facultatif) `https://…/boc_{YYYYMMDD}.pdf,https://…/cote?date={DD-MM-YYYY}` | modèles d'URL du bulletin officiel de la cote (PDF ou HTML), collectés toutes les heures pour les dernières séances closes ; sans cette variable, le bulletin s'importe par collage dans « Données officielles » |
    | `BOC_COLUMNS` | (facultatif) `volume,ref,open,close,changePct,trades` | ordre des colonnes d'un bulletin sans ligne d'en-tête reconnue (champs : ref, open, high, low, close, changePct, volume, value, trades, bid, bidQty, ask, askQty, skip) |
