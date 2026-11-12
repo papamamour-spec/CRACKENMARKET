@@ -48,8 +48,8 @@ export function AttributionPanel({ url, compact = false }: { url: string; compac
         <div style={{ minWidth: 0 }}>
           <h4 style={{ margin: "0 0 6px" }}>Contribution par ligne</h4>
           <div className="table-scroll"><table>
-            <thead><tr><th className="left">Valeur</th><th>Poids départ</th><th>Écart indice</th><th>Rdt</th>{!compact && <th>dont div.</th>}<th>Contribution</th></tr></thead>
-            <tbody>{r.lines.map((l) => <tr key={l.symbol}><td><Link to={`/valeur/${l.symbol}`} className="sym">{l.symbol}<small>{l.sector}</small></Link></td><td className="mono">{l.weightStartPct} %</td><td className={`mono ${signClass(l.activeWeightPct)}`}>{fmtPct(l.activeWeightPct, 1)}</td><td className={`mono ${signClass(l.returnPct)}`}>{fmtPct(l.returnPct, 1)}</td>{!compact && <td className="mono muted">{l.dividendPct != null ? fmtPct(l.dividendPct, 1) : "—"}</td>}<td className={`mono ${signClass(l.contributionPct)}`}><b>{fmtPct(l.contributionPct, 2)}</b></td></tr>)}</tbody>
+            <thead><tr><th className="left">Valeur</th><th>Contribution</th><th>Rdt</th><th>Poids départ</th><th>Écart indice</th>{!compact && <th>dont div.</th>}</tr></thead>
+            <tbody>{r.lines.map((l) => <tr key={l.symbol}><td><Link to={`/valeur/${l.symbol}`} className="sym">{l.symbol}<small>{l.sector}</small></Link></td><td className={`mono ${signClass(l.contributionPct)}`}><b>{fmtPct(l.contributionPct, 2)}</b></td><td className={`mono ${signClass(l.returnPct)}`}>{fmtPct(l.returnPct, 1)}</td><td className="mono">{l.weightStartPct} %</td><td className={`mono ${signClass(l.activeWeightPct)}`}>{fmtPct(l.activeWeightPct, 1)}</td>{!compact && <td className="mono muted">{l.dividendPct != null ? fmtPct(l.dividendPct, 1) : "—"}</td>}</tr>)}</tbody>
           </table></div>
           {r.notes.length > 0 && <p className="muted" style={{ fontSize: 11 }}>{r.notes.join(" · ")}</p>}
         </div>
