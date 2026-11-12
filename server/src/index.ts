@@ -87,6 +87,7 @@ async function main(): Promise<void> {
   const fundamentals = new FundamentalsService(db, market);
   fundamentals.attach(documents, news, quality);
   fundamentals.attachBoc(boc);
+  fundamentals.start();
   history.attachQuality(quality);
   history.start();
   const panel = new PanelService(market);

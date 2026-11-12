@@ -107,3 +107,38 @@ describe("service des fondamentaux", () => {
     expect(htmlToPlainText("<html><body><h1>Titre</h1><script>x()</script><p>Chiffre  d'affaires</p></body></html>")).toBe("Titre Chiffre d'affaires");
   });
 });
+
+describe("lecture automatique du corps des publications", () => {
+  it("télécharge les documents une seule fois, dans la politique de collecte, et en extrait les chiffres", async () => {
+    const { resetFetchPolicy } = await import("../src/services/fetchPolicy.js");
+    const { DocumentService } = await import("../src/services/documents.js");
+    resetFetchPolicy(0);
+    const { market, db } = await marketWithHistory(60);
+    const docs = new DocumentService(db, []);
+    docs.importText("SNTS ; Résultats annuels 2025 ; https://docs.example/snts-resultats-2025.pdf ; 2026-03-15");
+    let hits = 0;
+    const fetchImpl = (async (url: string) => {
+      hits++;
+      if (!String(url).includes("snts-resultats-2025")) return new Response("", { status: 404 });
+      return new Response("<html><body><h1>Sonatel : résultats de l'exercice 2025</h1><p>Chiffre d'affaires de 1 650 milliards de FCFA, en hausse de 8 %. Résultat net de 420 milliards de FCFA. Dividende proposé de 1 750 FCFA par action.</p></body></html>", { status: 200, headers: { "content-type": "text/html" } });
+    }) as unknown as typeof fetch;
+    const svc = new FundamentalsService(db, market, fetchImpl);
+    svc.attach(docs, null, null);
+    const r = await svc.scan(true);
+    expect(r.fetched).toBe(1);
+    expect(r.inserted).toBeGreaterThanOrEqual(1);
+    const rec = svc.records("SNTS").find((x) => x.period === "2025")!;
+    expect(rec.revenue).toBe(1_650_000_000_000);
+    expect(rec.netIncome).toBe(420_000_000_000);
+    // second passage : le document déjà lu n'est pas retéléchargé (mémoire persistée dans meta)
+    const again = await svc.scan(true);
+    expect(again.fetched).toBe(0);
+    expect(hits).toBe(1);
+    expect((db.prepare("SELECT value FROM meta WHERE key = 'fundamentals_fetched'").get() as { value: string }).value).toContain("snts-resultats-2025");
+    // un document sous un chemin interdit (robots.txt de Sika) n'est jamais demandé
+    docs.importText("ORAC ; États financiers 2025 ; https://www.sikafinance.com/docs/orac-2025.pdf ; 2026-04-01");
+    const third = await svc.scan(true);
+    expect(third.fetched).toBe(0);
+    expect(hits).toBe(1);
+  });
+});
