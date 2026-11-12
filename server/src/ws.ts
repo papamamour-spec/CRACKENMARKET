@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { Services } from "./routes/index.js";
+import { config } from "./config.js";
 import type { QuoteSnapshot } from "./services/market.js";
 import type { OrderBook } from "./services/orderbook.js";
 import type { Signal } from "./services/signals.js";
@@ -38,7 +39,7 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
         /* jeton invalide : connexion anonyme */
       }
     }
-    send(ws, { type: "hello", status: s.market.status(), indices: s.market.indices(), quotes: s.market.allSnapshots() });
+    send(ws, { type: "hello", status: { ...s.market.status(), privateMode: config.privateMode }, indices: s.market.indices(), quotes: s.market.allSnapshots() });
 
     ws.on("message", (raw) => {
       try {
@@ -97,7 +98,7 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
     for (const [ws, st] of clients) if (st.userId === v.user_id) send(ws, { type: "advisory", request: { id: v.id, status: v.status, client_label: v.client_label, analyst_note: v.analyst_note } });
   });
   s.market.on("status", (status) => {
-    for (const ws of clients.keys()) send(ws, { type: "status", status });
+    for (const ws of clients.keys()) send(ws, { type: "status", status: { ...status, privateMode: config.privateMode } });
   });
 
   // keepalive

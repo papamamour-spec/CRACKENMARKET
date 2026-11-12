@@ -13,6 +13,7 @@ import type { NewsService } from "../services/news.js";
 import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
+import type { TrackingService } from "../services/tracking.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
@@ -55,6 +56,7 @@ export interface Services {
   fundamentals: FundamentalsService;
   panel: PanelService;
   history: HistoryService;
+  tracking: TrackingService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -62,7 +64,13 @@ export function buildRouter(s: Services): Router {
   const guard = requireAuth(s.auth);
 
   // ---------- Santé ----------
-  r.get("/health", (_req, res) => res.json({ ok: true, ...s.market.status() }));
+  r.get("/health", (_req, res) => res.json({ ok: true, privateMode: config.privateMode, ...s.market.status() }));
+  /** Mode privé : fonctions communautaires et guichet SGI désactivés. */
+  const privateOff = (_req: unknown, res: { status(n: number): { json(b: unknown): void } }, next: () => void) => {
+    if (config.privateMode) return res.status(403).json({ error: "Fonction désactivée : plateforme privée (PRIVATE_MODE)" });
+    next();
+  };
+  r.use(["/social", "/sgi/console", "/account/referrals"], privateOff);
 
   // ---------- Auth ----------
   const registerSchema = z.object({
@@ -75,6 +83,7 @@ export function buildRouter(s: Services): Router {
   r.post(
     "/auth/register",
     asyncHandler((req, res) => {
+      if (config.privateMode) throw Object.assign(new Error("Plateforme privée : les inscriptions sont fermées"), { status: 403 });
       const body = registerSchema.parse(req.body);
       const role = body.role === "admin" ? "investor" : (body.role ?? "investor");
       const user = s.auth.register(body.email, body.password, body.fullName, role, body.referralCode || undefined);
@@ -746,6 +755,24 @@ export function buildRouter(s: Services): Router {
   );
   r.post("/holdings/import-virtual", guard, (req, res) => res.json(s.holdings.importVirtual(req.auth!.sub)));
   r.get("/holdings/analysis", guard, (req, res) => res.json(s.holdings.analyze(req.auth!.sub)));
+
+  // ---- Suivi réel des portefeuilles recommandés ----
+  r.get("/tracking", guard, (req, res) => res.json({ items: s.tracking.list(req.auth!.sub) }));
+  r.get("/tracking/:id", guard, (req, res) => {
+    const v = s.tracking.view(req.auth!.sub, Number(req.params.id));
+    if (!v) return res.status(404).json({ error: "Portefeuille suivi inconnu" });
+    res.json(v);
+  });
+  const trackingSchema = z.object({ kind: z.enum(["conseil", "cible", "manuel"]), label: z.string().min(1).max(120), capital: z.number().positive(), lines: z.array(z.object({ symbol: z.string().min(2).max(10), weightPct: z.number().min(0).max(100) })).min(1).max(40), sourceId: z.number().int().optional() });
+  r.post(
+    "/tracking",
+    guard,
+    asyncHandler((req, res) => {
+      const body = trackingSchema.parse(req.body);
+      res.status(201).json(s.tracking.create(req.auth!.sub, body));
+    }),
+  );
+  r.delete("/tracking/:id", guard, (req, res) => res.json({ removed: s.tracking.remove(req.auth!.sub, Number(req.params.id)) }));
   r.post(
     "/holdings/analysis",
     guard,
@@ -781,7 +808,7 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       const body = advisorySchema.parse(req.body);
       const staffCode = s.sgi.staffSgiCode(req.auth!.sub);
-      const asSgi = !!staffCode && req.auth!.role === "sgi" && body.asSgi !== false;
+      const asSgi = !config.privateMode && !!staffCode && req.auth!.role === "sgi" && body.asSgi !== false;
       const view = s.advisory.create(req.auth!.sub, asSgi ? "sgi" : "client", asSgi ? staffCode : null, { ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) });
       res.status(201).json(view);
     }),

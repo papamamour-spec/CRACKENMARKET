@@ -18,6 +18,7 @@ chaque cotation.
 | Prévisions | Pour chaque valeur et trois horizons (1 semaine, 1 mois, 3 mois) : modèle d'ensemble (régression ridge sur facteurs de marché et de saisonnalité + autorégressif + Monte-Carlo) entraîné sur l'historique de la valeur, rendement attendu, probabilité de hausse, intervalle à 90 %, cours cibles, précision mesurée en test chronologique, contribution de chaque facteur expliquée en français ; classement du marché |
 | Qualité et risque du titre | Score 0–100 par action avec règles publiées (liquidité, stabilité, transparence, actionnariat, rendement), drapeaux rouges, plafonds, confiance selon les données vérifiées ; profil d'émetteur renseigné par les analystes ; score sur la fiche valeur, le screener et le portefeuille |
 | Collecte automatique | Cote en direct (brvm.org, Sika Finance), bulletin officiel quotidien en PDF (cours, carnet, obligations, dividendes, PER, avis), historique réel des cours et capitalisations (Sika Finance), dividendes historiques, rapports et annonces des sociétés (brvm.org), communiqués et actualités ; formats vérifiés sur les pages réelles, délais des sites respectés, état par flux dans « Données officielles » |
+| Allocations robustes | Covariance factorielle (marché, taille, rendement, secteurs), limite de perte CVaR selon le profil, plafonds de liquidité, frais et fiscalité des dividendes dans l'objectif, rééquilibrage par bandes, tests de résistance (fenêtres historiques, krach, secteur, taux), suivi réel des portefeuilles recommandés contre BRVM Composite et BRVM 30 nets de frais |
 | Fondamentaux, panel, Black-Litterman | Publications lues et structurées (chiffre d'affaires, résultat, capitaux propres, BPA, dividende), ratios (PER, P/B, rendement bénéficiaire, ROE, croissance, distribution) ; modèle de panel commun à la cote (rendement relatif, rangs transversaux, fondamentaux datés) comme troisième modèle de l'ensemble, mesuré par le backtest ; rendements Black-Litterman (équilibre de marché + vues pondérées par leur confiance) dans l'optimiseur |
 | Évaluation en marche avant | Backtest reproductible du moteur de prévision : direction, erreur contre la prévision nulle, corrélation de rang, calibration (intervalle 90 %, Brier, fiabilité), stratégie « k meilleures prévues » nette de frais contre l'indice et le panier équipondéré ; rapports conservés et comparables, script `npm run evaluate` |
 | Données officielles | Historique ajusté des fractionnements, regroupements, attributions et dividendes (séries lues par tous les modèles, bascule « Cours ajustés » sur les graphiques), dividendes réels (saisie, import, lecture des avis, rendement réel, calendrier aux dates publiées, objectifs de cours nets du détachement), bulletin officiel de la cote (transactions, meilleures limites, réservations, suspensions ; PDF ou HTML, collecte ou import) nourrissant le carnet et deux facteurs de prévision |
@@ -102,7 +103,10 @@ docker compose up --build
 Variables d'environnement (voir `server/.env.example`) : `PORT`, `JWT_SECRET`,
 `DATA_PROVIDER` (`auto` | `live` | `simulation`), `LIVE_POLL_INTERVAL_MS`, `SIM_TICK_INTERVAL_MS`,
 `DB_PATH`, `CORS_ORIGIN`, `HISTORY_DAYS` (profondeur d'historique en séances, 5 ans soit 1 305 par défaut ;
-une base plus courte est prolongée au démarrage), `ADMIN_EMAIL` et `ADMIN_PASSWORD` (compte administrateur
+une base plus courte est prolongée au démarrage), `PRIVATE_MODE` (`1` par défaut : plateforme réservée à son
+propriétaire, inscriptions fermées, un seul compte administrateur et analyste, classement, profils publics,
+parrainage et guichet SGI désactivés, page publique remplacée par la connexion ; `0` pour rouvrir),
+`ADMIN_EMAIL` et `ADMIN_PASSWORD` (compte administrateur
 créé au démarrage quand les deux sont définies ; sans elles, aucun compte admin n'existe et le rôle
 « admin » n'est pas attribuable depuis l'inscription).
 
@@ -135,6 +139,7 @@ npm run typecheck
 | GET/POST | `/api/advisory/inbox`, `/api/advisory/requests/:id/review` | Revue par les analystes |
 | GET/POST | `/api/market/news`, `/api/market/news` (analyste), `/api/market/news/refresh` | Veille d'actualité et sentiment (état par source) |
 | GET | `/api/market/forecast/:symbol`, `/api/market/forecasts?horizon=1W|1M|3M` | Prévisions probabilistes (espérance, P(hausse), quantiles, précision mesurée, facteurs) |
+| GET/POST/DELETE | `/api/tracking`, `/api/tracking/:id` | Suivi des portefeuilles recommandés contre les indices |
 | GET/POST | `/api/market/collectors`, `/api/market/history-status`, `/api/market/history-status/refresh` (admin), `/api/market/corporate/dividends/sika` (analyste) | État des collecteurs, historique réel, dividendes Sika |
 | GET/POST/DELETE | `/api/market/fundamentals`, `/api/market/fundamentals/:symbol`, `/api/market/fundamentals/import`, `/api/market/fundamentals/scan` (analyste), `/api/market/panel` | Fondamentaux structurés et modèle de panel |
 | GET/POST | `/api/market/evaluation`, `/api/market/evaluation/history`, `/api/market/evaluation/:id`, `/api/market/evaluation/run` (analyste) | Évaluation en marche avant du moteur de prévision |

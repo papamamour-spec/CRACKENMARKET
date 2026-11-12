@@ -10,7 +10,19 @@ import type { MarketService } from "../src/services/market.js";
 
 // Marché et analyse technique factices, calculés sur l'historique synthétique
 const histories = new Map(INSTRUMENTS.map((i) => [i.symbol, generateDailyHistory(i, 300)]));
-const market = { price: (s: string) => INSTRUMENT_MAP.get(s)!.refPrice, history: (s: string, n: number) => histories.get(s)!.slice(-n) } as unknown as MarketService;
+const market = {
+  price: (s: string) => INSTRUMENT_MAP.get(s)!.refPrice,
+  history: (s: string, n: number) => histories.get(s)!.slice(-n),
+  // indice composite reconstitué : moyenne des cours normalisés des valeurs du stub
+  indexHistory: (n: number) => {
+    const series = [...histories.values()];
+    const len = Math.min(n, ...series.map((h) => h.length));
+    return Array.from({ length: len }, (_, k) => {
+      const comp = series.reduce((a, h) => a + h[h.length - len + k].close / h[0].close, 0) / series.length;
+      return { ts: series[0][series[0].length - len + k].ts, composite: comp * 250, brvm30: comp * 125 };
+    });
+  },
+} as unknown as MarketService;
 const cache = new Map<string, ReturnType<typeof analyze>>();
 const advisor = { technical: (s: string) => cache.get(s) ?? (cache.set(s, analyze(s, histories.get(s)!)), cache.get(s)!), newsContext: () => new Map() } as unknown as AdvisorService;
 

@@ -1,7 +1,25 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { post } from "../lib/api";
 import { fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
-import { ADVISORY_STATUS_LABEL, type AdvisoryReport, type AdvisoryView } from "../lib/types";
+import { ADVISORY_STATUS_LABEL, type AdvisoryReport, type AdvisoryView, type TrackedView } from "../lib/types";
+import { RiskPanel } from "./RiskPanel";
 import { ScoreBar } from "./ScoreBar";
+
+/** Enregistre l'allocation proposée pour la suivre contre les indices, nette de frais. */
+function FollowButton({ v }: { v: AdvisoryView }) {
+  const [state, setState] = useState<{ busy: boolean; msg: string | null }>({ busy: false, msg: null });
+  const follow = async () => {
+    setState({ busy: true, msg: null });
+    try {
+      const t = await post<TrackedView>("/tracking", { kind: "conseil", label: `Conseil n° ${v.id || "aperçu"} · ${fmtFcfa(v.capital)}`, capital: v.capital, lines: v.report.allocation.map((l) => ({ symbol: l.symbol, weightPct: l.weightPct })), ...(v.id ? { sourceId: v.id } : {}) });
+      setState({ busy: false, msg: `Suivi démarré (${t.lines.length} lignes, frais d'entrée ${fmtFcfa(t.entryCost)}) : voir la page Performance.` });
+    } catch (e) {
+      setState({ busy: false, msg: (e as Error).message });
+    }
+  };
+  return <span className="row" style={{ gap: 8 }}><button className="btn sm" disabled={state.busy} onClick={follow}>Suivre ce portefeuille contre l'indice</button>{state.msg && <span className="muted" style={{ fontSize: 12 }}>{state.msg}</span>}</span>;
+}
 
 /** Frontière efficiente : volatilité (x) / rendement attendu (y), le portefeuille retenu en surbrillance. */
 function Frontier({ o }: { o: NonNullable<AdvisoryReport["optimization"]> }) {
@@ -114,7 +132,7 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
           <div className="grid grid-2" style={{ gap: 14 }}>
             <div>
               <div className="grid grid-3" style={{ gap: 10 }}>
-                <div className="kpi"><span className="label">Rendement annuel attendu</span><span className={`value ${signClass(r.optimization.expectedAnnualReturnPct)}`}>{fmtPct(r.optimization.expectedAnnualReturnPct, 1)}</span><span className="sub muted">dont dividendes {r.optimization.dividendYieldPct} %</span></div>
+                <div className="kpi"><span className="label">Rendement annuel attendu</span><span className={`value ${signClass(r.optimization.expectedAnnualReturnPct)}`}>{fmtPct(r.optimization.expectedAnnualReturnPct, 1)}</span><span className="sub muted">dont dividendes {r.optimization.dividendYieldPct} %{r.optimization.netExpectedAnnualReturnPct != null ? ` · net des frais d'entrée ${fmtPct(r.optimization.netExpectedAnnualReturnPct, 1)}` : ""}{r.optimization.riskModel ? ` · covariance ${r.optimization.riskModel === "factoriel" ? "factorielle" : "échantillon"}` : ""}</span></div>
                 <div className="kpi"><span className="label">Volatilité annuelle</span><span className="value">{r.optimization.volatilityPct} %</span><span className="sub muted">minimum possible {r.optimization.minVolatilityPct} %</span></div>
                 <div className="kpi"><span className="label">Ratio de Sharpe</span><span className="value">{r.optimization.sharpe.toFixed(2)}</span><span className="sub muted">taux sans risque {r.optimization.riskFreePct} %</span></div>
               </div>
@@ -154,6 +172,13 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
           )}
         </div>
       )}
+      {r.risk && (
+        <div style={{ marginTop: 14 }}>
+          <h3>Risque, liquidité, coûts et tests de résistance</h3>
+          <RiskPanel r={r.risk} total={r.capital} compact={compact} />
+        </div>
+      )}
+      {!compact && r.allocation.length > 0 && <div style={{ marginTop: 12 }}><FollowButton v={v} /></div>}
       {r.bonds && (r.bonds.lines.length > 0 || r.bonds.targetSharePct > 0) && (
         <div style={{ marginTop: 14 }}>
           <h3>Poche obligataire · {r.bonds.lines.length ? `${r.bonds.sharePct} % du capital (${fmtFcfa(r.bonds.amount)})` : `${r.bonds.targetSharePct} % prévus, aucune émission retenue`}</h3>

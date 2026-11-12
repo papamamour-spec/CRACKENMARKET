@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { useAuth } from "../hooks/useAuth";
+import { useMarket } from "../hooks/useMarket";
 import { api, del, post, put } from "../lib/api";
 import { fmtDateTime } from "../lib/format";
 import type { ApiKey, Referrals, User } from "../lib/types";
 
 export function AccountPage() {
   const { user, refresh } = useAuth();
+  const { status } = useMarket();
+  const priv = !!status?.privateMode;
   const [tab, setTab] = useState<"securite" | "parrainage" | "api">("securite");
   return (
     <div className="grid">
       <div className="card row">
-        <div><h1>Mon compte</h1><span className="muted">{user?.fullName} · {user?.email} · {user?.points ?? 0} points</span></div>
+        <div><h1>Mon compte</h1><span className="muted">{user?.fullName} · {user?.email}{priv ? " · plateforme privée" : ` · ${user?.points ?? 0} points`}</span></div>
       </div>
       <div className="tabs">
         <button className={tab === "securite" ? "active" : ""} onClick={() => setTab("securite")}>Sécurité</button>
-        <button className={tab === "parrainage" ? "active" : ""} onClick={() => setTab("parrainage")}>Parrainage & points</button>
+        {!priv && <button className={tab === "parrainage" ? "active" : ""} onClick={() => setTab("parrainage")}>Parrainage & points</button>}
         <button className={tab === "api" ? "active" : ""} onClick={() => setTab("api")}>Clés API</button>
       </div>
       {tab === "securite" && <SecurityTab user={user} refresh={refresh} />}
