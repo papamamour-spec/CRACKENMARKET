@@ -5,7 +5,7 @@ import { SkeletonCard } from "../components/Skeleton";
 import { useMarket } from "../hooks/useMarket";
 import { api, del, post, put } from "../lib/api";
 import { fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
-import type { BondView, HeldPortfolio, HeldPosition, PortfolioAnalysis } from "../lib/types";
+import { QUALITY_BAND_CLASS, type BondView, type HeldPortfolio, type HeldPosition, type PortfolioAnalysis, type QualityBand } from "../lib/types";
 
 const ACTION_CLASS: Record<string, string> = { renforcer: "buy", conserver: "hold", alléger: "reduce", vendre: "sell", initier: "strong-buy", diversifier: "hold", liquidités: "hold", obligations: "buy" };
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
@@ -218,7 +218,7 @@ export function HoldingsPage() {
             <h2>Ligne par ligne</h2>
             <div className="table-scroll">
             <table>
-              <thead><tr><th className="left">Valeur</th><th>Qté</th><th>PRU</th><th>Cours</th><th>Valeur</th><th>+/- value</th><th>Poids</th><th>Rdt div.</th><th>1 mois</th><th className="left">Avis Kraken</th><th>Prévision 1 m / 3 m</th><th className="left">Action proposée</th></tr></thead>
+              <thead><tr><th className="left">Valeur</th><th>Qté</th><th>PRU</th><th>Cours</th><th>Valeur</th><th>+/- value</th><th>Poids</th><th>Rdt div.</th><th>1 mois</th><th>Qualité</th><th className="left">Avis Kraken</th><th>Prévision 1 m / 3 m</th><th className="left">Action proposée</th></tr></thead>
               <tbody>
                 {a.lines.map((l) => (
                   <tr key={l.symbol}>
@@ -231,6 +231,7 @@ export function HoldingsPage() {
                     <td className={`mono ${l.weightPct > 25 ? "down" : ""}`}>{l.weightPct} %</td>
                     <td className="mono">{l.dividendYield.toFixed(1)} %</td>
                     <td className={`mono ${l.perf?.["1M"] != null ? signClass(l.perf["1M"]!) : ""}`}>{l.perf?.["1M"] != null ? fmtPct(l.perf["1M"]!, 1) : "—"}</td>
+                    <td>{l.quality ? <span className={`badge ${QUALITY_BAND_CLASS[l.quality.band as QualityBand]}`} title={l.quality.headline}>{l.quality.band} {l.quality.score}</span> : "—"}</td>
                     <td className="left"><ActionBadge action={l.recommendation.action} /><div className="muted" style={{ fontSize: 11, whiteSpace: "normal", maxWidth: 220 }}>{l.recommendation.rationale[0]} · objectif {fmtNum(l.recommendation.targetPrice)}, stop {fmtNum(l.recommendation.stopLoss)}</div></td>
                     <td className="mono">{l.forecast ? <><span className={signClass(l.forecast.expected1M)}>{fmtPct(l.forecast.expected1M, 1)}</span> / <span className={signClass(l.forecast.expected3M)}>{fmtPct(l.forecast.expected3M, 1)}</span><br /><small className="muted">hausse {Math.round(l.forecast.probUp3M * 100)} %</small></> : "—"}</td>
                     <td className="left"><span className={`badge ${ACTION_CLASS[l.action.kind]}`}>{l.action.kind}{l.action.quantity > 0 ? ` ${l.action.quantity}` : ""}</span><div className="muted" style={{ fontSize: 11, whiteSpace: "normal", maxWidth: 260 }}>{l.action.reasons.join(" · ")}</div></td>

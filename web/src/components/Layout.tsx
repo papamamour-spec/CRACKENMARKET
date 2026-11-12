@@ -63,6 +63,7 @@ export function Layout() {
     {
       title: "Marché",
       items: [
+        { to: "/radar", label: "Radar de la place", icon: "◉" },
         { to: "/previsions", label: "Prévisions", icon: "◎" },
         { to: "/obligations", label: "Obligations", icon: "▣" },
         { to: "/actualites", label: "Signaux & agenda", icon: "◔" },

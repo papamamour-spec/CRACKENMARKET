@@ -10,6 +10,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Demander un conseil", to: "/conseil", hint: "Nouvelle demande de placement" },
   { label: "Portefeuille", to: "/portefeuille", hint: "Positions et ordres" },
   { label: "Performance", to: "/performance", hint: "Courbe et statistiques" },
+  { label: "Radar de la place", to: "/radar", hint: "Introductions, émissions, dividendes, suspensions" },
   { label: "Prévisions", to: "/previsions", hint: "Rendements attendus, probabilités, précision" },
   { label: "Obligations", to: "/obligations", hint: "Emprunts d'État, BOAD, entreprises : rendement, duration, échéancier" },
   { label: "Signaux & agenda", to: "/actualites", hint: "Actualité, signaux, événements" },
