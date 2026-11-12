@@ -7,7 +7,6 @@ import { indicatorSeries } from "../engine/technical.js";
 import { POINTS, ROLES, type AuthService, type Role } from "../services/auth.js";
 import type { SocialService } from "../services/social.js";
 import type { SignalService } from "../services/signals.js";
-import { buildEventCalendar } from "../data/events.js";
 import type { SgiService, SgiOrderStatus } from "../services/sgi.js";
 import type { AdvisoryService } from "../services/advisory.js";
 import type { NewsService } from "../services/news.js";
@@ -18,6 +17,8 @@ import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
 import type { RadarService, RadarKind } from "../services/radar.js";
+import type { CorporateService } from "../services/corporate.js";
+import type { BocService } from "../services/boc.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -44,6 +45,8 @@ export interface Services {
   documents: DocumentService;
   quality: QualityService;
   radar: RadarService;
+  corporate: CorporateService;
+  boc: BocService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -262,6 +265,7 @@ export function buildRouter(s: Services): Router {
     active: z.boolean().optional(),
   });
   const isAdmin = (req: { auth?: { role: string } }) => req.auth!.role === "admin";
+  const isAnalyst = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
   r.get("/market/bonds", (_req, res) => res.json({ items: s.bonds.list(), status: s.bonds.status(), note: "Cours en pourcentage du nominal restant dû, issus de la cote officielle de la BRVM lorsqu'elle est collectée (sinon indicatifs). Les dates de jouissance et le mode d'amortissement sont estimés d'après le libellé tant qu'un administrateur ne les a pas précisés." }));
   r.post(
     "/market/bonds/import-cote",
@@ -331,6 +335,91 @@ export function buildRouter(s: Services): Router {
       res.json({ imported, rejected });
     }),
   );
+  // ---------- Données officielles : bulletin de la cote, actions sur le capital, dividendes ----------
+  r.get("/market/boc", (req, res) => res.json({ ...s.boc.session(req.query.ts ? Number(req.query.ts) : undefined), status: s.boc.status() }));
+  r.get("/market/boc/status", (_req, res) => res.json(s.boc.status()));
+  r.get("/market/boc/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json({ symbol, latest: s.boc.latest(symbol), activity: s.boc.activity(symbol), stats: s.boc.stats(symbol, Math.min(500, Number(req.query.limit ?? 60))) });
+  });
+  r.post(
+    "/market/boc/import",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ text: z.string().min(5).max(500000), date: z.string().optional() }).parse(req.body);
+      const ts = body.date ? Date.parse(body.date) : NaN;
+      res.json({ ...s.boc.importText(body.text, Number.isFinite(ts) ? ts : null, "import"), status: s.boc.status() });
+    }),
+  );
+  r.post(
+    "/market/boc/refresh",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      res.json({ lastRun: await s.boc.refresh(!!req.body?.force), status: s.boc.status() });
+    }),
+  );
+  r.get("/market/corporate", (req, res) => {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    res.json({ actions: s.corporate.actions(symbol), dividends: s.corporate.dividends(symbol), status: s.corporate.status() });
+  });
+  r.get("/market/corporate/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    const price = s.market.price(symbol);
+    res.json({ symbol, actions: s.corporate.actions(symbol), dividends: s.corporate.dividends(symbol), info: s.corporate.dividendInfo(symbol, price), adjustments: s.market.adjustmentSteps(symbol) });
+  });
+  const actionSchema = z.object({ symbol: z.string().min(2), kind: z.enum(["split", "reverse_split", "bonus"]), exDate: z.string().min(8), ratio: z.number().positive(), note: z.string().max(500).nullable().optional(), status: z.enum(["confirmé", "suspecté"]).optional() });
+  r.post(
+    "/market/corporate/actions",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.status(201).json(s.corporate.upsertAction(actionSchema.parse(req.body), req.auth!.sub));
+    }),
+  );
+  r.post("/market/corporate/actions/detect", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    res.json(s.corporate.detect());
+  });
+  r.post("/market/corporate/actions/:id/confirm", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    try { res.json(s.corporate.confirmAction(Number(req.params.id), req.auth!.sub)); } catch (e) { res.status(404).json({ error: (e as Error).message }); }
+  });
+  r.delete("/market/corporate/actions/:id", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    s.corporate.removeAction(Number(req.params.id));
+    res.json({ ok: true });
+  });
+  const dividendSchema = z.object({ symbol: z.string().min(2), fiscalYear: z.number().int(), gross: z.number().positive().nullable().optional(), net: z.number().positive().nullable().optional(), exDate: z.string().nullable().optional(), paymentDate: z.string().nullable().optional(), agmDate: z.string().nullable().optional(), status: z.enum(["proposé", "approuvé", "payé"]).optional(), url: z.string().url().nullable().optional(), note: z.string().max(500).nullable().optional() });
+  r.post(
+    "/market/corporate/dividends",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.status(201).json(s.corporate.upsertDividend(dividendSchema.parse(req.body), req.auth!.sub));
+    }),
+  );
+  r.post(
+    "/market/corporate/dividends/import",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ text: z.string().min(5).max(100000) }).parse(req.body);
+      res.json(s.corporate.importDividends(body.text, req.auth!.sub));
+    }),
+  );
+  r.post("/market/corporate/dividends/scan", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    res.json({ inserted: s.corporate.ingestRecent() });
+  });
+  r.delete("/market/corporate/dividends/:id", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    s.corporate.removeDividend(Number(req.params.id));
+    res.json({ ok: true });
+  });
   r.get("/market/instruments", (_req, res) => res.json(INSTRUMENTS));
   r.get("/market/quotes", (_req, res) => res.json(s.market.allSnapshots()));
   r.get("/market/quotes/:symbol", (req, res) => {
@@ -343,8 +432,9 @@ export function buildRouter(s: Services): Router {
     if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
     const tf = (String(req.query.timeframe ?? "1D") as "1D" | "1W" | "1M" | "1m");
     const limit = Math.min(2000, Number(req.query.limit ?? 500));
-    const candles = s.market.historyAggregated(symbol, tf, limit);
-    res.json({ symbol, timeframe: tf, candles, indicators: tf === "1m" ? null : indicatorSeries(candles) });
+    const adjusted = req.query.adjusted === "1" || req.query.adjusted === "true";
+    const candles = s.market.historyAggregated(symbol, tf, limit, adjusted);
+    res.json({ symbol, timeframe: tf, candles, adjusted, adjustments: adjusted ? s.market.adjustmentSteps(symbol) : [], indicators: tf === "1m" ? null : indicatorSeries(candles) });
   });
   r.get("/market/ticks/:symbol", (req, res) => res.json(s.market.recentTicks(req.params.symbol.toUpperCase(), Number(req.query.limit ?? 50))));
   r.get("/market/screener", (_req, res) => res.json(s.advisor.marketScreener()));
@@ -391,7 +481,7 @@ export function buildRouter(s: Services): Router {
     const to = Number(req.query.to ?? now + 120 * 86_400_000);
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : null;
     const year = new Date(now).getUTCFullYear();
-    const all = [...buildEventCalendar(year), ...buildEventCalendar(year + 1)];
+    const all = [...s.corporate.calendar(year), ...s.corporate.calendar(year + 1)];
     res.json(all.filter((e) => e.date >= from && e.date <= to && (!symbol || e.symbol === symbol || e.symbol === null)));
   });
   r.get("/market/news", (req, res) => {
@@ -584,7 +674,6 @@ export function buildRouter(s: Services): Router {
     excludedSymbols: z.array(z.string().max(16)).max(60).optional(),
     bondSharePct: z.number().min(0).max(80).optional(),
   });
-  const isAnalyst = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
   r.post(
     "/advisory/requests",
     guard,

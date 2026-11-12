@@ -59,6 +59,8 @@ interface Context {
   cash: number;
   /** Sentiment de l'actualité récente par valeur (veille presse / BRVM) */
   news?: Map<string, NewsContext>;
+  /** Rendement net réel (%) d'après les dividendes renseignés, par valeur ; sinon celui du référentiel */
+  dividendYields?: Map<string, number>;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -66,7 +68,8 @@ const r0 = (v: number) => Math.round(v);
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
 export function recommend(tech: TechnicalSnapshot, ctx: Context): Recommendation {
-  const inst = INSTRUMENT_MAP.get(tech.symbol)!;
+  const base = INSTRUMENT_MAP.get(tech.symbol)!;
+  const inst = { ...base, dividendYield: ctx.dividendYields?.get(tech.symbol) ?? base.dividendYield };
   const { profile } = ctx;
   const w = profile.weights;
   const s = tech.scores;

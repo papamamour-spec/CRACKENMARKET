@@ -19,6 +19,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Suivi & alertes", to: "/alertes", hint: "Liste de suivi" },
   { label: "Ma SGI", to: "/sgi", hint: "Compte-titres et ordres réels" },
   { label: "Backtest", to: "/backtest", hint: "Tester une stratégie" },
+  { label: "Données officielles", to: "/donnees", hint: "Bulletin de la cote, dividendes, fractionnements (analystes)" },
   { label: "Mon profil", to: "/profil", hint: "Questionnaire investisseur" },
   { label: "Compte", to: "/compte", hint: "Sécurité, parrainage, API" },
 ];

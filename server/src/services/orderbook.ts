@@ -7,6 +7,16 @@ export interface BookLevel {
   orders: number;
 }
 
+/** Meilleures limites publiées par la BRVM dans le bulletin officiel de la cote (fin de séance). */
+export interface OfficialBook {
+  bid: number | null;
+  bidQty: number | null;
+  ask: number | null;
+  askQty: number | null;
+  ts: number; // séance
+  source: string;
+}
+
 export interface OrderBook {
   symbol: string;
   bids: BookLevel[]; // meilleur prix en premier
@@ -16,6 +26,8 @@ export interface OrderBook {
   imbalance: number; // -1 (pression vendeuse) .. 1 (pression acheteuse)
   ts: number;
   estimated: boolean; // true si reconstitué (pas de flux de profondeur officiel)
+  /** meilleures limites officielles de la dernière séance collectée, si disponibles */
+  official?: OfficialBook;
 }
 
 function tickSize(price: number, symbol: string): number {

@@ -5,6 +5,7 @@ import { buildEventCalendar } from "../data/events.js";
 import type { BondService } from "./bonds.js";
 import type { DocumentService } from "./documents.js";
 import type { NewsService } from "./news.js";
+import type { CorporateService } from "./corporate.js";
 
 export type RadarKind = "introduction" | "emission_obligataire" | "offre_publique" | "dividende" | "resultats" | "assemblee" | "suspension" | "nouvelle_obligation" | "augmentation_capital" | "calendrier";
 
@@ -57,6 +58,13 @@ export function classifyRadar(title: string): RadarKind | null {
 export class RadarService extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private lastScan: { at: number; inserted: number } | null = null;
+  private corporate: CorporateService | null = null;
+
+  /** Dividendes réels : le calendrier du radar utilise les dates publiées. */
+  attachCorporate(c: CorporateService): void {
+    this.corporate = c;
+    c.on("change", () => void this.scan());
+  }
 
   constructor(
     private readonly db: DB,
@@ -107,7 +115,8 @@ export class RadarService extends EventEmitter {
       }
       const now = Date.now();
       const year = new Date(now).getUTCFullYear();
-      for (const ev of [...buildEventCalendar(year), ...buildEventCalendar(year + 1)]) {
+      const cal = (y: number) => this.corporate?.calendar(y) ?? buildEventCalendar(y);
+      for (const ev of [...cal(year), ...cal(year + 1)]) {
         if (ev.date < now || ev.date > now + 30 * 86_400_000) continue;
         n += this.insert({ kind: "calendrier", symbol: ev.symbol, title: ev.title, detail: `${ev.detail}${ev.indicative ? " (date indicative)" : ""}`, url: null, source: "calendrier", date: ev.date });
       }

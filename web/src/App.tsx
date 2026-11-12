@@ -26,6 +26,7 @@ import { SgiPage } from "./pages/SgiPage";
 import { SgiConsolePage } from "./pages/SgiConsolePage";
 import { AdvisoryRequestPage } from "./pages/AdvisoryRequestPage";
 import { AnalystInboxPage } from "./pages/AnalystInboxPage";
+import { DataPage } from "./pages/DataPage";
 
 function Protected() {
   const { user, loading } = useAuth();
@@ -74,6 +75,7 @@ export function App() {
             <Route path="/previsions" element={<ForecastsPage />} />
             <Route path="/obligations" element={<BondsPage />} />
             <Route path="/radar" element={<RadarPage />} />
+            <Route path="/donnees" element={<DataPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/compte" element={<AccountPage />} />
             <Route path="/conseil" element={<AdvisoryRequestPage />} />

@@ -6,7 +6,9 @@ import { LiveBrvmProvider } from "../data/providers/live.js";
 import { SimulationProvider, generateDailyHistory, isTradingDay } from "../data/providers/simulation.js";
 import type { MarketDataProvider, Quote } from "../data/providers/types.js";
 import type { Candle } from "../engine/indicators.js";
-import { buildOrderBook, type OrderBook } from "./orderbook.js";
+import { buildOrderBook, type OfficialBook, type OrderBook } from "./orderbook.js";
+import { adjustCandles, type AdjustmentStep } from "../engine/corporate.js";
+import type { CorporateService } from "./corporate.js";
 
 export interface QuoteSnapshot {
   symbol: string;
@@ -105,6 +107,10 @@ export class MarketService extends EventEmitter {
   private bookRand = mulberry32Seed(Date.now() & 0xffffffff);
   private started = false;
   private statusTimer: NodeJS.Timeout | null = null;
+  private corporate: CorporateService | null = null;
+  /** séries ajustées des opérations sur le capital, par valeur (invalidées à chaque changement) */
+  private adjusted = new Map<string, { version: number; len: number; prefix: Candle[]; steps: AdjustmentStep[] }>();
+  private officialBooks = new Map<string, OfficialBook>();
 
   constructor(private readonly db: DB) {
     super();
@@ -286,6 +292,7 @@ export class MarketService extends EventEmitter {
         const inst = INSTRUMENT_MAP.get(q.symbol);
         if (!inst) continue;
         const b = buildOrderBook(inst, q.price, this.bookRand, 5, q.ts);
+        b.official = this.officialBooks.get(q.symbol);
         this.books.set(q.symbol, b);
         books.push(b);
       }
@@ -303,6 +310,7 @@ export class MarketService extends EventEmitter {
     const s = this.snapshots.get(symbol);
     if (!inst || !s) return undefined;
     const b = buildOrderBook(inst, s.price, this.bookRand, 5, s.ts);
+    b.official = this.officialBooks.get(symbol);
     this.books.set(symbol, b);
     return b;
   }
@@ -415,15 +423,94 @@ export class MarketService extends EventEmitter {
     return this.snapshots.get(symbol)?.price ?? 0;
   }
 
-  history(symbol: string, limit = 500): Candle[] {
+  /** Branche les actions sur le capital : les séries servies aux modèles sont alors ajustées. */
+  attachCorporate(c: CorporateService): void {
+    this.corporate = c;
+    c.on("change", () => this.adjusted.clear());
+  }
+
+  /**
+   * Historique quotidien. Par défaut la série est ajustée des fractionnements, regroupements,
+   * attributions gratuites et dividendes connus (voir `engine/corporate.ts`) : c'est celle que
+   * doivent lire les modèles. `adjusted = false` rend les cours réellement cotés (affichage).
+   */
+  history(symbol: string, limit = 500, adjusted = true): Candle[] {
     const arr = this.candles.get(symbol) ?? [];
-    return arr.slice(-limit);
+    if (!adjusted || !this.corporate || !arr.length) return arr.slice(-limit);
+    return this.adjustedSeries(symbol, arr).slice(-limit);
+  }
+
+  /** Étapes d'ajustement appliquées à la série d'une valeur (vide si aucune opération connue). */
+  adjustmentSteps(symbol: string): AdjustmentStep[] {
+    const arr = this.candles.get(symbol) ?? [];
+    if (!this.corporate || !arr.length) return [];
+    this.adjustedSeries(symbol, arr);
+    return this.adjusted.get(symbol)?.steps ?? [];
+  }
+
+  private adjustedSeries(symbol: string, raw: Candle[]): Candle[] {
+    const version = this.corporate!.version;
+    let entry = this.adjusted.get(symbol);
+    // la dernière bougie (séance en cours) bouge à chaque cotation : on met en cache le préfixe ajusté
+    // et on y ajoute la bougie courante, jamais modifiée par un ajustement (elle est postérieure à tout détachement)
+    if (!entry || entry.version !== version || entry.len !== raw.length) {
+      const actions = this.corporate!.adjustments(symbol);
+      const prefixRaw = raw.slice(0, -1);
+      const adj = actions.length ? adjustCandles(prefixRaw, actions) : { candles: prefixRaw, steps: [], totalFactor: 1 };
+      entry = { version, len: raw.length, prefix: adj.candles, steps: adj.steps };
+      this.adjusted.set(symbol, entry);
+    }
+    if (!entry.steps.length) return raw;
+    return [...entry.prefix, raw[raw.length - 1]];
+  }
+
+  /**
+   * Bougie officielle d'une séance (bulletin officiel de la cote) : remplace la bougie construite
+   * à partir des cotations relevées, en base et en mémoire. Si la séance est celle du jour, le
+   * dernier cours affiché devient la clôture officielle.
+   */
+  applyOfficialCandle(symbol: string, c: Candle): boolean {
+    const inst = INSTRUMENT_MAP.get(symbol);
+    if (!inst || !(c.close > 0)) return false;
+    const arr = this.candles.get(symbol) ?? [];
+    const idx = arr.findIndex((x) => x.ts === c.ts);
+    const candle: Candle = { ts: c.ts, open: c.open > 0 ? c.open : c.close, high: Math.max(c.high || 0, c.open || 0, c.close), low: Math.min(c.low || c.close, c.open || c.close, c.close), close: c.close, volume: Math.max(0, Math.round(c.volume)) };
+    if (idx >= 0) arr[idx] = candle;
+    else {
+      arr.push(candle);
+      arr.sort((a, b) => a.ts - b.ts);
+    }
+    this.candles.set(symbol, arr);
+    this.db.prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)").run(symbol, candle.ts, candle.open, candle.high, candle.low, candle.close, candle.volume);
+    this.adjusted.delete(symbol);
+    const s = this.snapshots.get(symbol);
+    if (s && c.ts === startOfDayUtc(Date.now())) {
+      const prev = arr[arr.length - 2]?.close ?? s.prevClose;
+      s.prevClose = prev;
+      s.price = candle.close; s.open = candle.open; s.high = candle.high; s.low = candle.low; s.volume = candle.volume;
+      s.value = Math.max(s.value, candle.volume * candle.close);
+      s.change = s.price - prev;
+      s.changePct = prev ? (s.change / prev) * 100 : 0;
+      s.ts = Date.now();
+      s.source = "live";
+      this.refreshPerf(symbol);
+      this.emit("quotes", [{ ...s, perf: { ...s.perf } }]);
+    } else if (s) this.refreshPerf(symbol);
+    return true;
+  }
+
+  /** Meilleures limites officielles (bulletin de la cote) : affichées à côté du carnet reconstitué. */
+  setOfficialBook(symbol: string, book: OfficialBook | null): void {
+    if (book) this.officialBooks.set(symbol, book);
+    else this.officialBooks.delete(symbol);
+    const existing = this.books.get(symbol);
+    if (existing) existing.official = book ?? undefined;
   }
 
   /** Agrégation hebdomadaire / mensuelle à partir du quotidien. */
-  historyAggregated(symbol: string, timeframe: "1D" | "1W" | "1M" | "1m", limit = 500): Candle[] {
+  historyAggregated(symbol: string, timeframe: "1D" | "1W" | "1M" | "1m", limit = 500, adjusted = false): Candle[] {
     if (timeframe === "1m") return (this.intraday.get(symbol) ?? []).slice(-limit);
-    const daily = this.candles.get(symbol) ?? [];
+    const daily = this.history(symbol, 100000, adjusted);
     if (timeframe === "1D") return daily.slice(-limit);
     const keyOf = (ts: number) => {
       const d = new Date(ts);

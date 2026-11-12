@@ -4,6 +4,8 @@ import { forecast, type Forecast, type Horizon } from "../engine/forecast.js";
 import type { AdvisorService } from "./advisor.js";
 import type { MarketService } from "./market.js";
 import type { LearningService } from "./learning.js";
+import type { CorporateService } from "./corporate.js";
+import type { BocService } from "./boc.js";
 
 const TTL_MS = 15 * 60_000;
 
@@ -27,6 +29,8 @@ export class ForecastService extends EventEmitter {
   private cache = new Map<string, { at: number; f: Forecast }>();
   private warmTimer: NodeJS.Timeout | null = null;
   private learning: LearningService | null = null;
+  private corporate: CorporateService | null = null;
+  private boc: BocService | null = null;
 
   constructor(
     private readonly market: MarketService,
@@ -42,6 +46,15 @@ export class ForecastService extends EventEmitter {
     const stale = () => { for (const e of this.cache.values()) e.at = 0; };
     l.on("resolved", stale);
     l.on("backfill", stale);
+  }
+
+  /** Dividendes réels (détachement dans l'horizon) et bulletin officiel (carnet, réservations). */
+  attachOfficial(corporate: CorporateService | null, boc: BocService | null): void {
+    this.corporate = corporate;
+    this.boc = boc;
+    const stale = () => { for (const e of this.cache.values()) e.at = 0; };
+    corporate?.on("change", stale);
+    boc?.on("boc", stale);
   }
 
   /** Réchauffe progressivement le cache (une valeur à la fois pour ne pas bloquer l'API). */
@@ -74,7 +87,9 @@ export class ForecastService extends EventEmitter {
     const indexCloses = candles.map((c) => idxByTs.get(c.ts) ?? NaN);
     const aligned = indexCloses.every((v) => Number.isFinite(v)) ? indexCloses : null;
     const news = this.advisor.newsContext().get(symbol);
-    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined, params: this.learning?.params(symbol) });
+    const official = this.boc?.series(symbol, candles.map((c) => c.ts)) ?? null;
+    const upcomingDividend = this.corporate?.dividendInfo(symbol, candles[candles.length - 1]?.close ?? 0).next ?? null;
+    const f = forecast({ symbol, candles, indexCloses: aligned, news: news ? { score: news.score, count: news.count } : undefined, params: this.learning?.params(symbol), official, upcomingDividend });
     this.cache.set(symbol, { at: Date.now(), f });
     if (this.learning && candles.length) this.learning.log(f, candles[candles.length - 1].ts, "live");
     return f;

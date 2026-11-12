@@ -37,6 +37,8 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
   const [range, setRange] = useState<RangeYears>(1);
   const candleTimes = useRef<number[]>([]);
   const [overlays, setOverlays] = useState({ sma20: true, sma50: true, sma200: false, boll: false });
+  const [adjusted, setAdjusted] = useState(false);
+  const [adjustments, setAdjustments] = useState<HistoryResponse["adjustments"]>([]);
   const [legend, setLegend] = useState<string>("");
   const { theme } = useTheme();
 
@@ -129,9 +131,10 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
   // chargement de l'historique
   useEffect(() => {
     let cancelled = false;
-    api<HistoryResponse>(`/market/history/${symbol}?timeframe=${timeframe}&limit=${HISTORY_LIMIT}`).then((h) => {
+    api<HistoryResponse>(`/market/history/${symbol}?timeframe=${timeframe}&limit=${HISTORY_LIMIT}${adjusted ? "&adjusted=1" : ""}`).then((h) => {
       if (cancelled || !series.current) return;
       const s = series.current;
+      setAdjustments(h.adjustments ?? []);
       s.candles.setData(h.candles.map((c) => ({ time: t(c.ts), open: c.open, high: c.high, low: c.low, close: c.close })));
       s.volume.setData(h.candles.map((c) => ({ time: t(c.ts), value: c.volume, color: c.close >= c.open ? "rgba(34,197,94,.4)" : "rgba(239,68,68,.4)" })));
       lastCandle.current = h.candles[h.candles.length - 1] ?? null;
@@ -147,7 +150,7 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, adjusted]);
 
   // période visible : intraday = tout, sinon les N dernières années
   function applyRange(tf: Timeframe, years: RangeYears): void {
@@ -226,7 +229,13 @@ export function PriceChart({ symbol, quote, height = 420 }: Props) {
             </button>
           ))}
         </div>
-        <span className="muted" style={{ fontSize: 12 }}>Sous-fenêtres : RSI 14 · MACD 12/26/9</span>
+        {timeframe !== "1m" && (
+          <div className="seg" title="Cours ajustés des fractionnements, regroupements, attributions et dividendes connus (série lue par les modèles)">
+            <button className={!adjusted ? "active" : ""} onClick={() => setAdjusted(false)}>Cours cotés</button>
+            <button className={adjusted ? "active" : ""} onClick={() => setAdjusted(true)}>Cours ajustés</button>
+          </div>
+        )}
+        <span className="muted" style={{ fontSize: 12 }}>Sous-fenêtres : RSI 14 · MACD 12/26/9{adjusted ? ` · ${adjustments?.length ? `${adjustments.length} ajustement(s) : ${adjustments.map((a) => a.detail).join(", ")}` : "aucune opération connue, série identique"}` : ""}</span>
       </div>
       <div className="chart-wrap">
         {legend && <div className="legend mono">{legend}</div>}

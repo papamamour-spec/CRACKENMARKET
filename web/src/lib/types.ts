@@ -52,6 +52,8 @@ export interface HistoryResponse {
   timeframe: string;
   candles: Candle[];
   indicators: Record<string, SeriesPoint[]> | null;
+  adjusted?: boolean;
+  adjustments?: AdjustmentStep[];
 }
 export interface User {
   id: number;
@@ -257,6 +259,8 @@ export interface OrderBook {
   imbalance: number;
   ts: number;
   estimated: boolean;
+  /** meilleures limites officielles (bulletin de la cote) de la dernière séance collectée */
+  official?: { bid: number | null; bidQty: number | null; ask: number | null; askQty: number | null; ts: number; source: string };
 }
 export interface Signal {
   id: number;
@@ -489,6 +493,7 @@ export interface HorizonForecast {
   learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
   contributions: Contribution[];
   explanations: string[];
+  dividendInHorizon: { exDate: number; amount: number; pct: number } | null;
 }
 export interface Forecast { symbol: string; price: number; generatedAt: number; dailyVolPct: number; horizons: HorizonForecast[]; summary: string }
 export interface ForecastSummary {
@@ -632,3 +637,16 @@ export type RadarKind = "introduction" | "emission_obligataire" | "offre_publiqu
 export const RADAR_KIND_LABEL: Record<RadarKind, string> = { introduction: "Introduction en bourse", emission_obligataire: "Émission obligataire", offre_publique: "Offre publique", dividende: "Dividende", resultats: "Résultats", assemblee: "Assemblée générale", suspension: "Suspension", nouvelle_obligation: "Nouvelle obligation cotée", augmentation_capital: "Augmentation de capital", calendrier: "Échéance à venir" };
 export interface RadarEvent { id: number; kind: RadarKind; symbol: string | null; title: string; detail: string | null; url: string | null; source: string; date: number; created_at: number }
 export interface RadarResponse { items: RadarEvent[]; status: { byKind: { kind: RadarKind; n: number }[]; recent48h: number; lastScan: { at: number; inserted: number } | null } }
+
+// ---- Données officielles : actions sur le capital, dividendes, bulletin de la cote ----
+export interface AdjustmentStep { exDate: number; kind: "split" | "reverse_split" | "dividend" | "bonus"; priceFactor: number; volumeFactor: number; detail: string }
+export interface CorporateActionView { id: number; symbol: string; name: string; kind: "split" | "reverse_split" | "bonus"; exDate: number; ratio: number | null; status: "confirmé" | "suspecté"; source: string; note: string | null; updatedAt: number }
+export type DividendStatus = "proposé" | "approuvé" | "payé";
+export interface DividendView { id: number; symbol: string; name: string; fiscalYear: number; gross: number | null; net: number | null; netEstimated: number | null; exDate: number | null; paymentDate: number | null; agmDate: number | null; status: DividendStatus; source: string; url: string | null; note: string | null; updatedAt: number }
+export interface DividendInfo { last: DividendView | null; yieldPct: number | null; next: { exDate: number; amount: number; fiscalYear: number; status: DividendStatus } | null; years: number }
+export interface CorporateStatus { actions: number; suspected: number; dividends: number; symbolsWithDividends: number; version: number }
+export interface CorporateSymbolResponse { symbol: string; actions: CorporateActionView[]; dividends: DividendView[]; info: DividendInfo; adjustments: AdjustmentStep[] }
+export interface DailyStat { symbol: string; ts: number; ref: number | null; open: number | null; high: number | null; low: number | null; close: number | null; changePct: number | null; volume: number | null; value: number | null; trades: number | null; bid: number | null; bidQty: number | null; ask: number | null; askQty: number | null; imbalance: number | null; reserved: "up" | "down" | null; suspended: boolean; source: string; fetchedAt: number }
+export interface BocStatus { sources: string[]; columns: string[] | null; sessions: number; lastSession: number | null; symbolsLastSession: number; lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null } | null; pdfSupport: boolean }
+export interface BocSymbolResponse { symbol: string; latest: DailyStat | null; activity: { sessions: number; avgTrades: number | null; reservedUp: number; reservedDown: number; suspendedDays: number; lastImbalance: number | null }; stats: DailyStat[] }
+export const ACTION_KIND_LABEL: Record<string, string> = { split: "Fractionnement", reverse_split: "Regroupement", bonus: "Attribution gratuite", dividend: "Dividende" };

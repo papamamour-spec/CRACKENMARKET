@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
+import { fmtDate, fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
 import { HORIZON_LABEL, type Forecast, type ForecastLogRow, type Horizon, type HorizonForecast } from "../lib/types";
 import { SkeletonCard } from "./Skeleton";
 
@@ -93,7 +93,7 @@ export function ForecastCard({ symbol }: { symbol: string }) {
         <div className="seg">{f.horizons.map((x) => <button key={x.horizon} className={h === x.horizon ? "active" : ""} onClick={() => setH(x.horizon)}>{HORIZON_LABEL[x.horizon]}</button>)}</div>
       </div>
       <div className="grid grid-3" style={{ gap: 10 }}>
-        <div className="kpi"><span className="label">Rendement attendu</span><span className={`value ${signClass(cur.expectedReturnPct)}`}>{fmtPct(cur.expectedReturnPct, 1)}</span><span className="sub muted">cible médiane {fmtNum(cur.priceTargets.p50)} FCFA</span></div>
+        <div className="kpi"><span className="label">Rendement attendu</span><span className={`value ${signClass(cur.expectedReturnPct)}`}>{fmtPct(cur.expectedReturnPct, 1)}</span><span className="sub muted">cible médiane {fmtNum(cur.priceTargets.p50)} FCFA{cur.dividendInHorizon ? ` · après détachement de ${fmtNum(cur.dividendInHorizon.amount)} FCFA (${fmtDate(cur.dividendInHorizon.exDate)})` : ""}</span></div>
         <div className="kpi"><span className="label">Probabilité de hausse</span><span className="value">{Math.round(cur.probUp * 100)} %</span><ProbBar p={cur.probUp} /><span className="sub muted">&gt; +5 % : {Math.round(cur.probAbove5 * 100)} % · &lt; −5 % : {Math.round(cur.probBelow5 * 100)} %</span></div>
         <div className="kpi"><span className="label">Précision historique</span><span className="value">{Math.round(cur.accuracy.hitRate * 100)} %</span><span className="sub muted">{cur.accuracy.samples} fenêtres de test · référence {Math.round(cur.accuracy.baselineHitRate * 100)} % <span className={skill > 0 ? "up" : "down"}>({skill > 0 ? "+" : ""}{Math.round(skill * 100)} pt)</span> · confiance {Math.round(cur.confidence * 100)} %</span></div>
       </div>

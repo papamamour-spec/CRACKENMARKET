@@ -5,6 +5,7 @@ import type { AdvisorService } from "./advisor.js";
 import type { DocumentService } from "./documents.js";
 import type { MarketService } from "./market.js";
 import type { NewsService } from "./news.js";
+import type { CorporateService } from "./corporate.js";
 
 const TTL = 10 * 60_000;
 
@@ -23,12 +24,19 @@ export class QualityService {
   private cache = new Map<string, { at: number; r: QualityResult }>();
   private documents: DocumentService | null = null;
   private news: NewsService | null = null;
+  private corporate: CorporateService | null = null;
 
   constructor(
     private readonly db: DB,
     private readonly market: MarketService,
     private readonly advisor: AdvisorService,
   ) {}
+
+  /** Dividendes réels : le rendement du score devient celui du dernier dividende connu. */
+  attachCorporate(c: CorporateService): void {
+    this.corporate = c;
+    c.on("change", () => this.cache.clear());
+  }
 
   attach(documents: DocumentService | null, news: NewsService | null): void {
     this.documents = documents;
@@ -107,7 +115,7 @@ export class QualityService {
       zeroVolumeDays20,
       volatility60: t.volatility60,
       maxDrawdown250: t.maxDrawdown250,
-      dividendYield: inst.dividendYield,
+      dividendYield: this.corporate?.yieldFor(sym, price) ?? inst.dividendYield,
       sectorMedianYield: this.sectorMedianYield(inst.sector),
       profile,
       publications: { lastAnnualReportYear: raYear != null && Number.isFinite(raYear) ? raYear : null, lastResultsDate: res?.published_at ?? null, lastResultsPeriod: res?.period ?? null, documents: h?.total ?? 0 },

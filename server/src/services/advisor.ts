@@ -6,6 +6,7 @@ import { analyze, type TechnicalSnapshot } from "../engine/technical.js";
 import type { MarketService } from "./market.js";
 import type { PortfolioService } from "./portfolio.js";
 import type { NewsService } from "./news.js";
+import type { CorporateService } from "./corporate.js";
 
 const TECH_TTL_MS = 60_000;
 
@@ -13,6 +14,7 @@ export class AdvisorService {
   private techCache = new Map<string, { at: number; snap: TechnicalSnapshot & { updatedAt: number } }>();
 
   private news: NewsService | null = null;
+  private corporate: CorporateService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -28,6 +30,21 @@ export class AdvisorService {
   /** Branche la veille d'actualité : son sentiment tempère les recommandations. */
   attachNews(news: NewsService): void {
     this.news = news;
+  }
+
+  /** Dividendes réels : le rendement des recommandations et du screener devient celui du dernier dividende connu. */
+  attachCorporate(c: CorporateService): void {
+    this.corporate = c;
+  }
+
+  private dividendYields(): Map<string, number> {
+    const m = new Map<string, number>();
+    if (!this.corporate) return m;
+    for (const i of INSTRUMENTS) {
+      const y = this.corporate.yieldFor(i.symbol, this.market.price(i.symbol) || i.refPrice);
+      if (y != null) m.set(i.symbol, y);
+    }
+    return m;
   }
 
   newsContext() {
@@ -88,7 +105,7 @@ export class AdvisorService {
     const profile = this.behaviorProfile(userId);
     const pf = this.portfolios.getForUser(userId);
     const positions = this.positionRecords(userId);
-    const ctx = { profile, positions, cash: pf.cash, news: this.newsContext() };
+    const ctx = { profile, positions, cash: pf.cash, news: this.newsContext(), dividendYields: this.dividendYields() };
     const recs = INSTRUMENTS.map((i) => recommend(this.technical(i.symbol), ctx)).sort((a, b) => b.score - a.score);
     return { profile, recommendations: recs };
   }
@@ -96,7 +113,7 @@ export class AdvisorService {
   recommendationFor(userId: number, symbol: string): Recommendation {
     const profile = this.behaviorProfile(userId);
     const pf = this.portfolios.getForUser(userId);
-    return recommend(this.technical(symbol), { profile, positions: this.positionRecords(userId), cash: pf.cash, news: this.newsContext() });
+    return recommend(this.technical(symbol), { profile, positions: this.positionRecords(userId), cash: pf.cash, news: this.newsContext(), dividendYields: this.dividendYields() });
   }
 
   portfolioDiagnostic(userId: number) {
@@ -111,6 +128,7 @@ export class AdvisorService {
 
   /** Classement marché (sans profil) : score composite technique. */
   marketScreener() {
+    const yields = this.dividendYields();
     return INSTRUMENTS.map((i) => {
       const t = this.technical(i.symbol);
       const s = this.market.snapshot(i.symbol);
@@ -127,7 +145,7 @@ export class AdvisorService {
         volatility: Math.round(t.volatility60 * 100),
         perf1m: Math.round(t.perf1m * 10) / 10,
         perf1y: Math.round(t.perf1y * 10) / 10,
-        dividendYield: i.dividendYield,
+        dividendYield: yields.get(i.symbol) ?? i.dividendYield,
         signals: t.signals,
       };
     }).sort((a, b) => b.composite - a.composite);
