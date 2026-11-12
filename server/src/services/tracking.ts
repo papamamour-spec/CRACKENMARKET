@@ -92,6 +92,12 @@ export class TrackingService {
     return { id: Number(r.id), kind: r.kind as TrackedKind, label: String(r.label), createdAt: Number(r.created_at), startTs: Number(r.start_ts), capital: Number(r.capital), cash: Number(r.cash), entryCost: Number(r.entry_cost), lines: JSON.parse(String(r.lines)) as TrackedLine[], sourceId: r.source_id == null ? null : Number(r.source_id) };
   }
 
+  /** Portefeuille suivi par identifiant, sans contrôle de propriétaire (modèles). */
+  byId(id: number): TrackedPortfolio | null {
+    const r = this.db.prepare("SELECT * FROM recommended_portfolios WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return r ? this.row(r) : null;
+  }
+
   /** Statistiques d'un portefeuille suivi, sans contrôle de propriétaire (performance des modèles, publique sur la plateforme). */
   statsById(id: number): TrackedStats | null {
     const r = this.db.prepare("SELECT * FROM recommended_portfolios WHERE id = ?").get(id) as Record<string, unknown> | undefined;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PerformanceChart } from "../components/PerformanceChart";
+import { AttributionPanel } from "../components/AttributionPanel";
 import { api, del, getToken } from "../lib/api";
 import { fmtDate, fmtFcfa, fmtPct, signClass } from "../lib/format";
 import type { Performance, TrackedPortfolio, TrackedView } from "../lib/types";
@@ -73,6 +74,8 @@ export function PerformancePage() {
           <div style={{ marginTop: 12 }}>
             <h3>{open.label} · {open.lines.map((l) => `${l.symbol} ${l.weightPct} %`).join(" · ")}</h3>
             <PerformanceChart series={open.series} height={280} />
+            <h3 style={{ marginTop: 12 }}>D'où vient la performance</h3>
+            <AttributionPanel url={`/attribution/tracking/${open.id}`} compact />
             <p className="muted" style={{ fontSize: 12 }}>Frais d'entrée {fmtFcfa(open.entryCost)} · liquidités conservées {fmtFcfa(open.cash)} · {open.stats.sessions} séance(s){open.stats.annualizedPct != null ? ` · ${fmtPct(open.stats.annualizedPct, 1)} annualisé` : ""}{open.stats.volatilityPct != null ? ` · volatilité ${open.stats.volatilityPct} %` : ""} · écart / BRVM 30 {fmtPct(open.stats.alphaBrvm30Pct, 2)}.</p>
           </div>
         )}

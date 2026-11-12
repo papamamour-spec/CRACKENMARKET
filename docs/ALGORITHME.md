@@ -284,3 +284,13 @@ Chaque jour ouvré après la clôture (3 minutes après le démarrage, puis apr�
 Score = 100 − 10 par erreur − 3 par avertissement − 0,5 par information (borné à 0). Chaque constat porte une empreinte stable : le passage suivant liste les constats **nouveaux** et **résolus**. Les passages sont conservés (`data_quality_runs`) ; une nouvelle erreur ou une baisse du score de plus de 10 points envoie une alerte aux administrateurs et analystes connectés.
 
 **Rapport du jour** (`daily_reports`) : place (indices, hausses et baisses), score de qualité, portefeuille détenu du propriétaire (valeur, séance, CVaR et limite, volatilité, bêta, pire scénario de résistance, lignes hors bande, prochaine revue, avertissements), modèles (performance nette, écart à l'indice, CVaR, dérive). Les **changements depuis la veille** sont listés : baisse du score, nouvelles erreurs, CVaR franchissant la limite ou variant de 2 points, lignes sortant de leur bande, séance de ± 2 %, dérive d'un modèle, nouvelle version publiée, indice de ± 1,5 %. Page « Qualité & risque du jour » ; routes `GET /api/quality`, `POST /api/quality/run`, `GET /api/quality/daily`, `POST /api/quality/daily/run` (analyste).
+
+## 25. Attribution de performance (`server/src/engine/attribution.ts`, `server/src/services/attribution.ts`)
+
+D'où vient la performance d'un portefeuille suivi (conseil, cible, modèle, depuis son départ) ou du portefeuille détenu (1 mois à 1 an, quantités actuelles tenues constantes) ? Méthode de **Brinson-Fachler** sur la période, en achat-conservation, contre le BRVM Composite reconstitué avec les pondérations de la plateforme (cours × volume moyen) :
+
+- **Contribution** de chaque ligne = poids de départ × rendement total (série ajustée) ; la somme est le rendement de la poche investie. La part des **dividendes** est l'écart entre série ajustée et série cotée.
+- **Allocation sectorielle** (w_p,s − w_b,s)(R_b,s − R_b), **sélection de titres** w_b,s(R_p,s − R_b,s), **interaction** (w_p,s − w_b,s)(R_p,s − R_b,s) ; **liquidités** −(1 − w_investi) × R_b ; la somme est exactement l'écart à l'indice (le résidu affiché provient des arrondis). **Coûts** : frais d'entrée et de sortie des portefeuilles suivis.
+- **Marché et spécifique** : bêta du portefeuille contre l'indice sur la période ; contribution du marché = bêta × R_b, le reste est propre au portefeuille.
+
+Routes `GET /api/attribution/holdings?period=1M|3M|6M|YTD|1Y`, `GET /api/attribution/tracking/:id`, `GET /api/attribution/models/:key`. Panneau « D'où vient la performance » sur Performance (portefeuilles suivis), Portefeuilles modèles et Analyser mon portefeuille.

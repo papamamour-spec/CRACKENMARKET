@@ -375,3 +375,10 @@ ol.actions .badge { margin-right: 4px; vertical-align: middle; }
 /* portefeuilles modèles */
 .model-card { border: 1px solid var(--border); font: inherit; color: inherit; }
 .model-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* attribution de performance */
+.attr-bar { position: relative; height: 10px; background: var(--bg-3); border-radius: 5px; overflow: hidden; }
+.attr-bar::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.attr-fill { height: 100%; border-radius: 5px; }
+.attr-fill.pos { background: var(--up); }
+.attr-fill.neg { background: var(--down); }

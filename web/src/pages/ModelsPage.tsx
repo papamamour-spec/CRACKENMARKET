@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PerformanceChart } from "../components/PerformanceChart";
+import { AttributionPanel } from "../components/AttributionPanel";
 import { useAuth } from "../hooks/useAuth";
 import { api, post } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
@@ -158,6 +159,8 @@ export function ModelsPage() {
             <div style={{ marginTop: 14 }}>
               <h3>Performance depuis la publication, nette de frais, contre le BRVM Composite</h3>
               <PerformanceChart series={detail.series} height={260} />
+              <h3 style={{ marginTop: 12 }}>D'où vient la performance du modèle</h3>
+              <AttributionPanel url={`/attribution/models/${detail.key}`} compact />
               {detail.versions.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Versions précédentes : {detail.versions.slice(1).map((x) => `v${x.version} (${fmtDate(x.publishedAt)}${x.performance ? `, ${fmtPct(x.performance.returnNetPct, 1)} net` : ""})`).join(" · ")}.</p>}
             </div>
           )}

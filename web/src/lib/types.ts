@@ -734,3 +734,14 @@ export interface DailyReport {
   changes: string[];
 }
 export interface DailyResponse { report: DailyReport | null; previous: DailyReport | null; history: DailyReport[] }
+
+export interface AttributionReport {
+  subject: { kind: "tracking" | "holdings"; id: number | null; label: string };
+  period: { from: number; to: number; sessions: number; label: string };
+  summary: { portfolioPct: number; investedPct: number; benchmarkPct: number; activePct: number; netPct: number; investedWeightPct: number };
+  effects: { allocationPct: number; selectionPct: number; interactionPct: number; cashPct: number; costsPct: number; dividendsPct: number; residualPct: number };
+  sectors: { sector: string; weightPortfolioPct: number; weightBenchmarkPct: number; returnPortfolioPct: number | null; returnBenchmarkPct: number | null; allocationPct: number; selectionPct: number; interactionPct: number; totalPct: number }[];
+  lines: { symbol: string; sector: string; weightStartPct: number; weightEndPct: number; returnPct: number; priceReturnPct: number | null; dividendPct: number | null; contributionPct: number; benchmarkWeightPct: number; activeWeightPct: number }[];
+  factors: { beta: number | null; marketContributionPct: number | null; specificPct: number | null };
+  notes: string[];
+}
