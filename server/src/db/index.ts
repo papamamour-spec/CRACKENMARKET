@@ -500,6 +500,29 @@ function migrate(d: DB): void {
       source_id INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_recommended_user ON recommended_portfolios(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS model_portfolios (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      params TEXT NOT NULL,             -- JSON ModelParams
+      current TEXT,                     -- JSON ModelVersion publiée
+      proposal TEXT,                    -- JSON ModelVersion proposée par le moteur
+      published_at INTEGER,
+      proposed_at INTEGER,
+      version INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'auto', -- auto | validated
+      note TEXT,
+      tracking_id INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS model_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      published_at INTEGER NOT NULL,
+      by_user INTEGER,
+      note TEXT,
+      snapshot TEXT NOT NULL,
+      tracking_id INTEGER
+    );
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
   addColumn(d, "forecast_log", "panel_pct", "REAL");

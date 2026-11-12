@@ -371,3 +371,7 @@ ol.actions .badge { margin-right: 4px; vertical-align: middle; }
 .classbar .eq { background: var(--accent); }
 .classbar .bd { background: var(--up); }
 .classbar .cs { background: var(--muted); }
+
+/* portefeuilles modèles */
+.model-card { border: 1px solid var(--border); font: inherit; color: inherit; }
+.model-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }

@@ -195,3 +195,31 @@ describe("service des actions sur le capital et des dividendes", () => {
     expect(withDiv.horizons.find((h) => h.horizon === "1W")!.dividendInHorizon).toBeNull();
   });
 });
+
+describe("rendement durable", () => {
+  it("prend la médiane des derniers exercices et signale un dividende exceptionnel", async () => {
+    const { openMemoryDb } = await import("../src/db/index.js");
+    const { CorporateService } = await import("../src/services/corporate.js");
+    const { MarketService, ensureHistoryDepth } = await import("../src/services/market.js");
+    const db = openMemoryDb();
+    ensureHistoryDepth(db, 30);
+    const svc = new CorporateService(db, new MarketService(db));
+    svc.upsertDividend({ symbol: "FTSC", fiscalYear: 2023, net: 95, status: "payé" }, 1);
+    svc.upsertDividend({ symbol: "FTSC", fiscalYear: 2024, net: 105, status: "payé" }, 1);
+    svc.upsertDividend({ symbol: "FTSC", fiscalYear: 2025, net: 1727, status: "payé" }, 1);
+    const info = svc.dividendInfo("FTSC", 1690);
+    expect(info.yieldPct).toBeCloseTo(102.2, 1);
+    expect(info.sustainableYieldPct).toBeCloseTo((105 / 1690) * 100, 1);
+    expect(info.exceptional).toBe(true);
+    expect(svc.yieldFor("FTSC", 1690)).toBe(info.sustainableYieldPct);
+    // un seul dividende connu, rendement démesuré : plafonné
+    svc.upsertDividend({ symbol: "SICC", fiscalYear: 2025, net: 5000, status: "payé" }, 1);
+    const one = svc.dividendInfo("SICC", 8000);
+    expect(one.yieldPct).toBeCloseTo(62.5, 1);
+    expect(one.sustainableYieldPct).toBe(15);
+    expect(one.exceptional).toBe(true);
+    // dividende régulier : inchangé
+    svc.upsertDividend({ symbol: "SGBC", fiscalYear: 2025, net: 1800, status: "payé" }, 1);
+    expect(svc.dividendInfo("SGBC", 20000)).toMatchObject({ yieldPct: 9, sustainableYieldPct: 9, exceptional: false });
+  });
+});

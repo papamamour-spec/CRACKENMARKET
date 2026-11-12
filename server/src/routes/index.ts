@@ -14,6 +14,7 @@ import type { ForecastService } from "../services/forecast.js";
 import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
 import type { TrackingService } from "../services/tracking.js";
+import type { ModelPortfolioService } from "../services/models.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
@@ -57,6 +58,7 @@ export interface Services {
   panel: PanelService;
   history: HistoryService;
   tracking: TrackingService;
+  models: ModelPortfolioService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -819,6 +821,31 @@ export function buildRouter(s: Services): Router {
     asyncHandler((req, res) => {
       const body = advisorySchema.parse(req.body);
       res.json(s.advisory.generateReport({ ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) }));
+    }),
+  );
+  // ---- Portefeuilles modèles par profil ----
+  r.get("/models", guard, (_req, res) => res.json({ items: s.models.list(), status: s.models.status() }));
+  r.get("/models/:key", guard, (req, res) => {
+    const v = s.models.view(req.params.key);
+    if (!v) return res.status(404).json({ error: "Modèle inconnu" });
+    res.json({ ...v, versions: s.models.versions(req.params.key), series: v.trackingId != null ? s.tracking.seriesById(v.trackingId) : [] });
+  });
+  r.get("/models/:key/plan", guard, asyncHandler((req, res) => res.json(s.models.planFor(req.auth!.sub, req.params.key as "prudent"))));
+  r.post(
+    "/models/recompute",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json({ ...(await s.models.recompute()), items: s.models.list() });
+    }),
+  );
+  r.post(
+    "/models/:key/publish",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ note: z.string().max(500).optional().nullable() }).parse(req.body ?? {});
+      res.json(s.models.publish(req.params.key as "prudent", req.auth!.sub, body.note ?? null));
     }),
   );
   r.get("/advisory/requests", guard, (req, res) => {
