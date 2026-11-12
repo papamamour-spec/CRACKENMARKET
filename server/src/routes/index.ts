@@ -19,6 +19,7 @@ import type { QualityService } from "../services/quality.js";
 import type { RadarService, RadarKind } from "../services/radar.js";
 import type { CorporateService } from "../services/corporate.js";
 import type { BocService } from "../services/boc.js";
+import type { EvaluationService } from "../services/evaluation.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -47,6 +48,7 @@ export interface Services {
   radar: RadarService;
   corporate: CorporateService;
   boc: BocService;
+  evaluation: EvaluationService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -420,6 +422,24 @@ export function buildRouter(s: Services): Router {
     s.corporate.removeDividend(Number(req.params.id));
     res.json({ ok: true });
   });
+  // ---------- Évaluation en marche avant du moteur de prévision ----------
+  r.get("/market/evaluation", (_req, res) => res.json({ latest: s.evaluation.latest(), status: s.evaluation.status() }));
+  r.get("/market/evaluation/history", (req, res) => res.json(s.evaluation.history(Math.min(100, Number(req.query.limit ?? 20)))));
+  r.get("/market/evaluation/:id", (req, res) => {
+    const rep = s.evaluation.get(Number(req.params.id));
+    if (!rep) return res.status(404).json({ error: "Rapport inconnu" });
+    res.json(rep);
+  });
+  r.post(
+    "/market/evaluation/run",
+    guard,
+    asyncHandler((req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ sessions: z.number().int().min(60).max(2000).optional(), step: z.number().int().min(1).max(60).optional(), topK: z.number().int().min(1).max(20).optional(), feePct: z.number().min(0).max(10).optional() }).parse(req.body ?? {});
+      const started = s.evaluation.run(body);
+      res.status(started ? 202 : 409).json({ started, status: s.evaluation.status() });
+    }),
+  );
   r.get("/market/instruments", (_req, res) => res.json(INSTRUMENTS));
   r.get("/market/quotes", (_req, res) => res.json(s.market.allSnapshots()));
   r.get("/market/quotes/:symbol", (req, res) => {

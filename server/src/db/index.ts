@@ -458,6 +458,12 @@ function migrate(d: DB): void {
       PRIMARY KEY (symbol, ts)
     );
     CREATE INDEX IF NOT EXISTS idx_daily_stats_ts ON daily_stats(ts);
+    CREATE TABLE IF NOT EXISTS evaluation_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at INTEGER NOT NULL,
+      config TEXT NOT NULL,
+      report TEXT NOT NULL
+    );
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
   addColumn(d, "bonds", "source", "TEXT NOT NULL DEFAULT 'seed'");

@@ -501,7 +501,7 @@ export interface ForecastSummary {
   horizons: Record<Horizon, { expectedReturnPct: number; probUp: number; hitRate: number; baselineHitRate: number; confidence: number; p5: number; p95: number; liveHitRate: number | null; resolved: number }>;
   summary: string; topExplanation: string | null;
 }
-export interface LearningStats { horizon: Horizon; pending: number; resolved: number; hitRate: number | null; maePct: number | null; coverage90: number | null; brier: number | null; naiveHitRate: number | null; naiveMaePct: number | null }
+export interface LearningStats { horizon: Horizon; pending: number; resolved: number; hitRate: number | null; maePct: number | null; coverage90: number | null; brier: number | null; naiveHitRate: number | null; naiveMaePct: number | null; rankIC: number | null; rankICt: number | null; rankICDays: number }
 export interface LearningSummary {
   totalResolved: number;
   totalPending: number;
@@ -650,3 +650,11 @@ export interface DailyStat { symbol: string; ts: number; ref: number | null; ope
 export interface BocStatus { sources: string[]; columns: string[] | null; sessions: number; lastSession: number | null; symbolsLastSession: number; lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null } | null; pdfSupport: boolean }
 export interface BocSymbolResponse { symbol: string; latest: DailyStat | null; activity: { sessions: number; avgTrades: number | null; reservedUp: number; reservedDown: number; suspendedDays: number; lastImbalance: number | null }; stats: DailyStat[] }
 export const ACTION_KIND_LABEL: Record<string, string> = { split: "Fractionnement", reverse_split: "Regroupement", bonus: "Attribution gratuite", dividend: "Dividende" };
+
+// ---- Évaluation en marche avant ----
+export interface EvaluationConfig { sessions: number; step: number; topK: number; feePct: number; minHistory: number; horizons: Horizon[]; seed: number }
+export interface ReliabilityBin { from: number; to: number; n: number; predicted: number | null; observed: number | null }
+export interface StrategyStats { periods: number; totalReturnPct: number; annualizedPct: number | null; maxDrawdownPct: number; sharpe: number | null; winShare: number; curve: { ts: number; value: number }[] }
+export interface HorizonEvaluation { horizon: Horizon; horizonDays: number; n: number; dates: number; hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; skill: number; ic: { mean: number | null; std: number | null; tStat: number | null; positiveShare: number | null; dates: number }; coverage90: number; brier: number; baselineBrier: number; reliability: ReliabilityBin[]; strategy: { topK: StrategyStats; index: StrategyStats | null; equalWeight: StrategyStats; costsPct: number } }
+export interface EvaluationReport { generatedAt: number; config: EvaluationConfig; universe: number; firstDate: number | null; lastDate: number | null; horizons: HorizonEvaluation[]; verdict: string[] }
+export interface EvaluationResponse { latest: { id: number; createdAt: number; report: EvaluationReport } | null; status: { running: { startedAt: number; done: number; total: number; config: EvaluationConfig } | null; latestAt: number | null; reports: number } }
