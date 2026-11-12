@@ -60,7 +60,7 @@ describe("portefeuille détenu", () => {
 
   it("analyse le portefeuille : lignes, risque, prévision, actions concrètes", () => {
     svc.replace(userId, { cash: 1_000_000, positions: [
-      { symbol: "SNTS", quantity: 400, avgPrice: 18000, acquiredAt: null, note: null },
+      { symbol: "SNTS", quantity: 2000, avgPrice: 3600, acquiredAt: null, note: null },
       { symbol: "ORAC", quantity: 100, avgPrice: 14000, acquiredAt: null, note: null },
       { symbol: "SGBC", quantity: 30, avgPrice: null, acquiredAt: null, note: null },
     ] });

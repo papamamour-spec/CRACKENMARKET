@@ -66,7 +66,7 @@ export class QualityService {
   }
 
   /** Mise à jour partielle du profil par un analyste (les champs absents sont conservés). */
-  saveProfile(symbol: string, input: ProfileInput, userId: number): ReturnType<QualityService["profile"]> {
+  saveProfile(symbol: string, input: ProfileInput, userId: number | null): ReturnType<QualityService["profile"]> {
     const sym = symbol.toUpperCase();
     if (!INSTRUMENT_MAP.has(sym)) throw new Error("Valeur inconnue");
     const cur = this.profile(sym);

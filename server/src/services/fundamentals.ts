@@ -7,7 +7,7 @@ import type { MarketService } from "./market.js";
 import type { DocumentService } from "./documents.js";
 import type { NewsService } from "./news.js";
 import type { QualityService } from "./quality.js";
-import { pdfToText } from "./boc.js";
+import { pdfToText, type BocService } from "./boc.js";
 
 export interface FundamentalInput {
   symbol: string;
@@ -81,6 +81,13 @@ export class FundamentalsService extends EventEmitter {
 
   constructor(private readonly db: DB, private readonly market: MarketService, private readonly fetchImpl: typeof fetch = fetch) {
     super();
+  }
+
+  private boc: BocService | null = null;
+
+  /** Bulletin officiel : PER publié par la BRVM, repli du rendement bénéficiaire quand aucune publication n'est structurée. */
+  attachBoc(b: BocService): void {
+    this.boc = b;
   }
 
   attach(documents: DocumentService | null, news: NewsService | null, quality: QualityService | null): void {
@@ -258,9 +265,10 @@ export class FundamentalsService extends EventEmitter {
       const known = r.published_at ?? r.period_end + PUBLICATION_LAG_DAYS * DAY;
       if (known > ts) continue;
       const eps = r.eps ?? (r.net_income != null && (r.shares ?? shares) ? r.net_income / (r.shares ?? shares)! : null);
-      return eps != null ? (eps / price) * 100 : null;
+      if (eps != null) return (eps / price) * 100;
     }
-    return null;
+    const per = this.boc?.perAt(symbol, ts) ?? null;
+    return per != null && per > 0 ? Math.round((100 / per) * 100) / 100 : null;
   }
 
   status(): { records: number; companies: number; auto: number; lastScan: ScanStatus | null } {

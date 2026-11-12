@@ -3,6 +3,9 @@ import * as cheerio from "cheerio";
 import type { DB } from "../db/index.js";
 import { INSTRUMENTS, INSTRUMENT_MAP } from "../data/instruments.js";
 import { matchSymbols, normalize, type NewsService } from "./news.js";
+import { BRVM_ANNOUNCEMENT_PAGES, BRVM_COMPANY_SLUGS, parseBrvmDocuments, parseCompanyIndex } from "../data/brvmSite.js";
+import { parseSikaCommuniques } from "../data/sika.js";
+import { politeText } from "./fetchPolicy.js";
 
 export type DocumentKind = "rapport_annuel" | "etats_financiers" | "resultats" | "dividende" | "assemblee" | "note_information" | "communique" | "autre";
 
@@ -47,16 +50,16 @@ export interface DocumentSource {
 }
 
 /**
- * Sources par défaut : pages de documents de RichBourse (rapports d'activité et états financiers, page
- * société), rapports annuels et communiqués publiés par la BRVM. Complétées par DOC_SOURCES_JSON.
- * Les adresses sont celles connues des sites ; l'état de chaque source est exposé pour les ajuster.
+ * Sources vérifiées sur les pages réelles : index des rapports des sociétés cotées de brvm.org (une page
+ * par société, PDF datés), annonces des émetteurs (convocations, communiqués, dirigeants, seuils) et
+ * communiqués des sociétés relayés par Sika Finance (titres et dates ; leurs PDF ne sont pas téléchargés,
+ * leur robots.txt l'interdit). RichBourse refuse l'extraction automatique : non collecté. DOC_SOURCES_JSON
+ * ajoute des pages lues avec le lecteur générique de liens.
  */
-export const DEFAULT_DOCUMENT_SOURCES: DocumentSource[] = [
-  { name: "RichBourse — rapports d'activité", url: "https://www.richbourse.com/investisseur/rapport-activite", weight: 0.9 },
-  { name: "RichBourse — société", url: "https://www.richbourse.com/common/societe/details/{symbol}", perCompany: true, weight: 0.9 },
-  { name: "BRVM — rapports annuels", url: "https://www.brvm.org/fr/type-document/annual-reports", weight: 1 },
-  { name: "BRVM — communiqués des sociétés", url: "https://www.brvm.org/fr/communiques-societes", weight: 1 },
-];
+export const DEFAULT_DOCUMENT_SOURCES: DocumentSource[] = [];
+/** Index des rapports des sociétés cotées sur brvm.org (pages société listant les PDF datés). */
+export const BRVM_REPORTS_INDEX = "https://www.brvm.org/fr/rapports-societes-cotees";
+export const SIKA_COMMUNIQUES = "https://www.sikafinance.com/marches/communiques_brvm";
 
 const MONTHS: Record<string, number> = { janvier: 0, fevrier: 1, février: 1, mars: 2, avril: 3, mai: 4, juin: 5, juillet: 6, aout: 7, août: 7, septembre: 8, octobre: 9, novembre: 10, decembre: 11, décembre: 11, jan: 0, fev: 1, fév: 1, mar: 2, avr: 3, juil: 6, sept: 8, oct: 9, nov: 10, dec: 11, déc: 11 };
 
@@ -172,19 +175,70 @@ export class DocumentService extends EventEmitter {
   status() {
     const count = (this.db.prepare("SELECT COUNT(*) AS n FROM company_documents").get() as { n: number }).n;
     const bySymbol = this.db.prepare("SELECT symbol, COUNT(*) AS n, MAX(published_at) AS last FROM company_documents GROUP BY symbol ORDER BY n DESC").all() as { symbol: string; n: number; last: number | null }[];
-    return { sources: this.sources.map((s) => ({ name: s.name, url: s.url, perCompany: !!s.perCompany })), documents: count, companies: bySymbol.length, bySymbol, lastRun: this.lastRun };
+    const builtIn = [{ name: "BRVM — rapports des sociétés", url: BRVM_REPORTS_INDEX, perCompany: true }, ...BRVM_ANNOUNCEMENT_PAGES.map((p) => ({ name: p.name, url: p.url, perCompany: false })), { name: "Sika Finance — communiqués", url: SIKA_COMMUNIQUES, perCompany: false }];
+    return { sources: [...builtIn, ...this.sources.map((s) => ({ name: s.name, url: s.url, perCompany: !!s.perCompany }))], documents: count, companies: bySymbol.length, bySymbol, lastRun: this.lastRun };
   }
 
   private async fetchText(url: string): Promise<string> {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 15_000);
-    try {
-      const res = await this.fetchImpl(url, { signal: ctrl.signal, headers: { "user-agent": "CrackenMarket/0.1 (+documents-societes)" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
-    } finally {
-      clearTimeout(t);
+    return politeText(url, { fetchImpl: this.fetchImpl, timeoutMs: 20_000 });
+  }
+
+  /**
+   * Rapports des sociétés cotées sur brvm.org : index paginé → page de chaque société connue →
+   * PDF datés (titre lisible). Une requête toutes les 10 secondes : la collecte complète prend
+   * plusieurs minutes, elle tourne en tâche de fond.
+   */
+  async refreshBrvmReports(symbols?: string[]): Promise<{ companies: number; inserted: number; failed: string[] }> {
+    const failed: string[] = [];
+    const companies = new Map<string, { url: string; symbol: string }>();
+    const queue = [BRVM_REPORTS_INDEX];
+    const seenPages = new Set<string>();
+    while (queue.length && seenPages.size < 10) {
+      const url = queue.shift()!;
+      if (seenPages.has(url)) continue;
+      seenPages.add(url);
+      try {
+        const idx = parseCompanyIndex(await this.fetchText(url));
+        for (const c of idx.companies) {
+          const symbol = BRVM_COMPANY_SLUGS[c.slug];
+          if (symbol && INSTRUMENT_MAP.has(symbol) && (!symbols || symbols.includes(symbol))) companies.set(c.slug, { url: c.url, symbol });
+        }
+        for (const n of idx.nextPages) if (!seenPages.has(n)) queue.push(n);
+      } catch (e) {
+        failed.push(`${url} (${(e as Error).message})`);
+      }
     }
+    let inserted = 0;
+    for (const [slug, c] of companies) {
+      try {
+        const docs = parseBrvmDocuments(await this.fetchText(c.url));
+        inserted += this.ingest("BRVM — rapports des sociétés", docs.map((d) => ({ title: d.title, url: d.url, publishedAt: d.publishedAt, symbol: c.symbol, summary: null })));
+      } catch (e) {
+        failed.push(`${slug} (${(e as Error).message})`);
+      }
+    }
+    return { companies: companies.size, inserted, failed };
+  }
+
+  /** Annonces des émetteurs (brvm.org) et communiqués relayés par Sika Finance. */
+  async refreshAnnouncements(): Promise<{ inserted: number; failed: string[] }> {
+    const failed: string[] = [];
+    let inserted = 0;
+    for (const page of BRVM_ANNOUNCEMENT_PAGES) {
+      try {
+        const docs = parseBrvmDocuments(await this.fetchText(page.url));
+        inserted += this.ingest(page.name, docs.map((d) => ({ title: d.title, url: d.url, publishedAt: d.publishedAt, symbol: matchSymbols(`${d.title} ${d.filename.replace(/_/g, " ")}`)[0], summary: null })));
+      } catch (e) {
+        failed.push(`${page.name} (${(e as Error).message})`);
+      }
+    }
+    try {
+      const coms = parseSikaCommuniques(await this.fetchText(SIKA_COMMUNIQUES));
+      inserted += this.ingest("Sika Finance — communiqués", coms.filter((c) => c.url).map((c) => ({ title: c.title.replace(/\s*_\s*/g, " — "), url: c.url!, publishedAt: c.date, symbol: matchSymbols(c.title)[0], summary: null })));
+    } catch (e) {
+      failed.push(`Sika Finance — communiqués (${(e as Error).message})`);
+    }
+    return { inserted, failed };
   }
 
   /** Collecte de toutes les sources (sources société par société : une page par valeur, pagination « ?page=n » pour les listes). */
@@ -192,6 +246,16 @@ export class DocumentService extends EventEmitter {
     const ok: string[] = [];
     const failed: string[] = [];
     let inserted = 0;
+    if (process.env.DOC_COLLECT !== "0") {
+      const a = await this.refreshAnnouncements();
+      inserted += a.inserted;
+      failed.push(...a.failed);
+      if (!a.failed.length) ok.push("BRVM — annonces et Sika — communiqués");
+      const r = await this.refreshBrvmReports(symbols.length === INSTRUMENTS.length ? undefined : symbols);
+      inserted += r.inserted;
+      failed.push(...r.failed);
+      if (r.companies) ok.push(`BRVM — rapports des sociétés (${r.companies} sociétés)`);
+    }
     for (const src of this.sources) {
       try {
         if (src.perCompany) {

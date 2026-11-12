@@ -145,7 +145,9 @@ describe("service du bulletin officiel", () => {
 
   it("séances candidates : dernière séance close, jours ouvrés seulement", async () => {
     const { market, db } = await marketWithHistory(10);
+    process.env.BOC_AUTO = "0"; // sans collecte automatique : seules les sources BOC_SOURCES comptent
     const boc = new BocService(db, market);
+    delete process.env.BOC_AUTO;
     expect(boc.candidateSessions(Date.UTC(2026, 10, 12, 10), 3)).toEqual([utc(2026, 11, 11), utc(2026, 11, 10), utc(2026, 11, 9)]);
     expect(boc.candidateSessions(Date.UTC(2026, 10, 16, 18), 2)).toEqual([utc(2026, 11, 16), utc(2026, 11, 13)]);
     const r = await boc.refresh();

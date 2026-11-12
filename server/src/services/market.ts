@@ -111,6 +111,8 @@ export class MarketService extends EventEmitter {
   /** séries ajustées des opérations sur le capital, par valeur (invalidées à chaque changement) */
   private adjusted = new Map<string, { version: number; len: number; prefix: Candle[]; steps: AdjustmentStep[] }>();
   private officialBooks = new Map<string, OfficialBook>();
+  /** première séance réelle (non synthétique) connue par valeur */
+  private realSince = new Map<string, number>();
 
   constructor(private readonly db: DB) {
     super();
@@ -160,12 +162,16 @@ export class MarketService extends EventEmitter {
       console.log(`[market] ${generated} séances d'historique synthétique générées (profondeur cible : ${config.historyDays} séances par valeur)`);
     }
     const rows = this.db
-      .prepare("SELECT symbol, ts, open, high, low, close, volume FROM candles ORDER BY symbol, ts")
-      .all() as (Candle & { symbol: string })[];
+      .prepare("SELECT symbol, ts, open, high, low, close, volume, source FROM candles ORDER BY symbol, ts")
+      .all() as (Candle & { symbol: string; source: string })[];
     for (const r of rows) {
       const arr = this.candles.get(r.symbol) ?? [];
       arr.push({ ts: r.ts, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume });
       this.candles.set(r.symbol, arr);
+      if (r.source !== "synthetic") {
+        const cur = this.realSince.get(r.symbol);
+        if (cur == null || r.ts < cur) this.realSince.set(r.symbol, r.ts);
+      }
     }
   }
 
@@ -386,9 +392,11 @@ export class MarketService extends EventEmitter {
     }
     this.candles.set(q.symbol, arr);
     const c = arr[arr.length - 1];
+    const src = q.source === "live" ? "live" : "synthetic";
     this.db
-      .prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)")
-      .run(q.symbol, c.ts, c.open, c.high, c.low, c.close, c.volume);
+      .prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume, source) VALUES (?,?,?,?,?,?,?,?)")
+      .run(q.symbol, c.ts, c.open, c.high, c.low, c.close, c.volume, src);
+    if (src === "live" && (this.realSince.get(q.symbol) ?? Infinity) > c.ts) this.realSince.set(q.symbol, c.ts);
   }
 
   private emitIndices(): void {
@@ -481,7 +489,8 @@ export class MarketService extends EventEmitter {
       arr.sort((a, b) => a.ts - b.ts);
     }
     this.candles.set(symbol, arr);
-    this.db.prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)").run(symbol, candle.ts, candle.open, candle.high, candle.low, candle.close, candle.volume);
+    this.db.prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume, source) VALUES (?,?,?,?,?,?,?,?)").run(symbol, candle.ts, candle.open, candle.high, candle.low, candle.close, candle.volume, "official");
+    if ((this.realSince.get(symbol) ?? Infinity) > candle.ts) this.realSince.set(symbol, candle.ts);
     this.adjusted.delete(symbol);
     const s = this.snapshots.get(symbol);
     if (s && c.ts === startOfDayUtc(Date.now())) {
@@ -497,6 +506,75 @@ export class MarketService extends EventEmitter {
       this.emit("quotes", [{ ...s, perf: { ...s.perf } }]);
     } else if (s) this.refreshPerf(symbol);
     return true;
+  }
+
+  /**
+   * Importe des séances réelles (historique Sika, bulletin) : remplace les bougies de ces dates, puis
+   * recale l'historique synthétique antérieur à la première séance réelle pour qu'il se raccorde sans
+   * rupture (même facteur appliqué à toutes les bougies synthétiques, volumes conservés). Les bougies
+   * synthétiques postérieures à la première séance réelle sont supprimées : seul le réel reste.
+   */
+  importRealCandles(symbol: string, candles: Candle[], source: "sika" | "official" | "live"): { inserted: number; rescaled: number; removed: number } {
+    if (!INSTRUMENT_MAP.has(symbol) || !candles.length) return { inserted: 0, rescaled: 0, removed: 0 };
+    const arr = this.candles.get(symbol) ?? [];
+    const sources = new Map((this.db.prepare("SELECT ts, source FROM candles WHERE symbol = ?").all(symbol) as { ts: number; source: string }[]).map((r) => [r.ts, r.source]));
+    const byTs = new Map(arr.map((c) => [c.ts, c]));
+    const ins = this.db.prepare("INSERT OR REPLACE INTO candles(symbol, ts, open, high, low, close, volume, source) VALUES (?,?,?,?,?,?,?,?)");
+    let inserted = 0;
+    let rescaled = 0;
+    let removed = 0;
+    const tx = this.db.transaction(() => {
+      for (const c of candles) {
+        if (!(c.close > 0)) continue;
+        const prev = sources.get(c.ts);
+        // une bougie officielle (bulletin) n'est pas remplacée par une autre source
+        if (prev === "official" && source !== "official") continue;
+        byTs.set(c.ts, { ts: c.ts, open: c.open > 0 ? c.open : c.close, high: Math.max(c.high || c.close, c.open || c.close, c.close), low: Math.min(c.low || c.close, c.open || c.close, c.close), close: c.close, volume: Math.max(0, Math.round(c.volume)) });
+        sources.set(c.ts, source);
+        inserted++;
+      }
+      const firstReal = Math.min(...[...sources.entries()].filter(([, s]) => s !== "synthetic").map(([ts]) => ts));
+      if (Number.isFinite(firstReal)) {
+        // suppression du synthétique postérieur au premier réel
+        for (const [ts, s] of sources) if (s === "synthetic" && ts >= firstReal) { byTs.delete(ts); sources.delete(ts); this.db.prepare("DELETE FROM candles WHERE symbol = ? AND ts = ?").run(symbol, ts); removed++; }
+        // recalage du synthétique antérieur : dernière clôture synthétique → ouverture de la première séance réelle
+        const synth = [...byTs.values()].filter((c) => sources.get(c.ts) === "synthetic" && c.ts < firstReal).sort((a, b) => a.ts - b.ts);
+        const real0 = byTs.get(firstReal)!;
+        if (synth.length) {
+          const last = synth[synth.length - 1];
+          const factor = real0.open / last.close;
+          if (Number.isFinite(factor) && factor > 0 && Math.abs(factor - 1) > 1e-6) {
+            for (const c of synth) { c.open *= factor; c.high *= factor; c.low *= factor; c.close *= factor; rescaled++; }
+          }
+        }
+        this.realSince.set(symbol, firstReal);
+      }
+      const merged = [...byTs.values()].sort((a, b) => a.ts - b.ts);
+      for (const c of merged) ins.run(symbol, c.ts, c.open, c.high, c.low, c.close, c.volume, sources.get(c.ts) ?? "synthetic");
+      this.candles.set(symbol, merged);
+    });
+    tx();
+    this.adjusted.delete(symbol);
+    const s = this.snapshots.get(symbol);
+    if (s) {
+      const merged = this.candles.get(symbol)!;
+      const today = startOfDayUtc(Date.now());
+      const lastC = merged[merged.length - 1];
+      if (lastC && lastC.ts < today) { s.prevClose = lastC.close; if (s.source !== "live") { s.price = lastC.close; s.change = 0; s.changePct = 0; } }
+      this.refreshPerf(symbol);
+    }
+    return { inserted, rescaled, removed };
+  }
+
+  /** Depuis quand l'historique d'une valeur est réel (null : entièrement synthétique). */
+  realHistorySince(symbol: string): number | null {
+    return this.realSince.get(symbol) ?? null;
+  }
+
+  /** État de l'historique : part réelle par valeur. */
+  historyStatus(): { symbol: string; candles: number; realSince: number | null; realCandles: number }[] {
+    const counts = new Map((this.db.prepare("SELECT symbol, SUM(source != 'synthetic') AS real FROM candles GROUP BY symbol").all() as { symbol: string; real: number }[]).map((r) => [r.symbol, r.real]));
+    return INSTRUMENTS.map((i) => ({ symbol: i.symbol, candles: this.candles.get(i.symbol)?.length ?? 0, realSince: this.realSince.get(i.symbol) ?? null, realCandles: counts.get(i.symbol) ?? 0 }));
   }
 
   /** Meilleures limites officielles (bulletin de la cote) : affichées à côté du carnet reconstitué. */

@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, del, post } from "../lib/api";
 import { compact, fmtDate, fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
-import { ACTION_KIND_LABEL, type BocStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView, type FundamentalsResponse } from "../lib/types";
+import { ACTION_KIND_LABEL, type BocStatus, type CollectorsStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView, type FundamentalsResponse, type HistoryStatus } from "../lib/types";
 import { useAuth } from "../hooks/useAuth";
 import { useMarket } from "../hooks/useMarket";
 
-type Tab = "boc" | "dividendes" | "capital" | "fondamentaux";
+type Tab = "collecte" | "boc" | "dividendes" | "capital" | "fondamentaux";
 const STATUS_CLASS: Record<string, string> = { proposé: "hold", approuvé: "buy", payé: "strong-buy" };
 
 /**
@@ -18,7 +18,9 @@ export function DataPage() {
   const { user } = useAuth();
   const { quotes } = useMarket();
   const admin = user?.role === "admin";
-  const [tab, setTab] = useState<Tab>("boc");
+  const [tab, setTab] = useState<Tab>("collecte");
+  const [collectors, setCollectors] = useState<CollectorsStatus | null>(null);
+  const [histStatus, setHistStatus] = useState<HistoryStatus | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // bulletin
@@ -45,7 +47,23 @@ export function DataPage() {
   const loadBoc = () => api<{ ts: number | null; items: DailyStat[]; status: BocStatus }>("/market/boc").then((r) => { setSession({ ts: r.ts, items: r.items }); setBocStatus(r.status); }).catch(() => {});
   const loadCorp = () => api<{ actions: CorporateActionView[]; dividends: DividendView[]; status: CorporateStatus }>("/market/corporate").then(setCorp).catch(() => {});
   const loadFunds = () => api<FundamentalsResponse>("/market/fundamentals").then(setFunds).catch(() => {});
-  useEffect(() => { loadBoc(); loadCorp(); loadFunds(); }, []);
+  const loadCollectors = () => { api<CollectorsStatus>("/market/collectors").then(setCollectors).catch(() => {}); api<HistoryStatus>("/market/history-status").then(setHistStatus).catch(() => {}); };
+  useEffect(() => { loadBoc(); loadCorp(); loadFunds(); loadCollectors(); const t = setInterval(loadCollectors, 20000); return () => clearInterval(t); }, []);
+  const refreshHistory = () => run(async () => {
+    const r = await post<{ lastRun: HistoryStatus["lastRun"] }>("/market/history-status/refresh", {});
+    loadCollectors();
+    return r.lastRun ? `Historique réel : ${r.lastRun.ok} valeur(s) lue(s), ${r.lastRun.inserted} séance(s) importée(s), ${r.lastRun.rescaled} bougie(s) synthétique(s) recalée(s)${r.lastRun.failed.length ? ` · échecs : ${r.lastRun.failed.slice(0, 3).join(" ; ")}${r.lastRun.failed.length > 3 ? "…" : ""}` : ""} (${Math.round(r.lastRun.durationMs / 1000)} s).` : "Aucun résultat.";
+  });
+  const sikaDividends = () => run(async () => {
+    const r = await post<{ history: number; upcoming: number }>("/market/corporate/dividends/sika", {});
+    await loadCorp();
+    return `Dividendes Sika Finance : ${r.history} exercice(s) lu(s), ${r.upcoming} détachement(s) à venir.`;
+  });
+  const refreshDocs = () => run(async () => {
+    const r = await post<{ inserted: number; status: { lastRun: { failed: string[] } | null } }>("/market/documents/refresh", {});
+    loadCollectors();
+    return `${r.inserted} document(s) collecté(s)${r.status.lastRun?.failed.length ? ` · échecs : ${r.status.lastRun.failed.slice(0, 3).join(" ; ")}` : ""}.`;
+  });
   const saveFund = () => run(async () => {
     const num = (v: string) => (v.trim() ? Number(v.replace(/[ \u00a0]/g, "").replace(",", ".")) : null);
     const r = await post<{ symbol: string; period: string }>("/market/fundamentals", { symbol: fundForm.symbol, period: fundForm.period, revenue: num(fundForm.revenue), netIncome: num(fundForm.netIncome), equity: num(fundForm.equity), shares: num(fundForm.shares), eps: num(fundForm.eps), dps: num(fundForm.dps), publishedAt: fundForm.publishedAt || null, url: fundForm.url || null });
@@ -120,7 +138,7 @@ export function DataPage() {
           <span className="muted">Ce qui nourrit les modèles : bulletin officiel de la cote (transactions, meilleures limites, réservations), dividendes réels et opérations sur le capital. Toute série lue par les prévisions, l'optimiseur et les indicateurs est ajustée de ces opérations.</span>
         </div>
         <div className="row">
-          <div className="seg">{(["boc", "dividendes", "capital", "fondamentaux"] as Tab[]).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "boc" ? "Bulletin de la cote" : t === "dividendes" ? "Dividendes" : t === "capital" ? "Capital" : "Fondamentaux"}</button>)}</div>
+          <div className="seg">{(["collecte", "boc", "dividendes", "capital", "fondamentaux"] as Tab[]).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "collecte" ? "Collecte" : t === "boc" ? "Bulletin de la cote" : t === "dividendes" ? "Dividendes" : t === "capital" ? "Capital" : "Fondamentaux"}</button>)}</div>
           <input placeholder="Filtrer par symbole" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 150 }} />
         </div>
       </div>
@@ -271,6 +289,41 @@ export function DataPage() {
             <button className="btn primary sm" style={{ marginTop: 8 }} disabled={busy || !actForm.exDate || !(Number(actForm.ratio) > 0)} onClick={saveAction}>Enregistrer</button>
             <p className="disclaimer" style={{ marginTop: 8 }}>Les cours antérieurs à la date d'effet sont divisés par k (fractionnement), multipliés par k (regroupement) ou ramenés à k / (k + 1) (attribution), les volumes à l'inverse. Les cours affichés sur les graphiques restent ceux réellement cotés sauf bascule « Cours ajustés ».</p>
           </div>
+        </div>
+      )}
+      {tab === "collecte" && (
+        <div className="grid">
+          <div className="card">
+            <div className="card-head">
+              <div><h3>Collecte automatique</h3><span className="muted" style={{ fontSize: 12 }}>Tout est collecté sans intervention : cote en direct (brvm.org, secours Sika Finance), bulletin officiel quotidien (PDF de brvm.org : cours, carnet, obligations, dividendes, PER, avis), historique réel des cours et capitalisations (Sika Finance), dividendes historiques (Sika Finance), rapports et annonces des sociétés (brvm.org), communiqués et actualités. Les délais demandés par les sites sont respectés ; RichBourse refuse l'extraction automatique et n'est pas collecté.</span></div>
+              {admin && <div className="row"><button className="btn sm" disabled={busy} onClick={refreshBoc}>Bulletin</button><button className="btn sm" disabled={busy} onClick={refreshHistory}>Historique réel</button><button className="btn sm" disabled={busy} onClick={sikaDividends}>Dividendes Sika</button><button className="btn sm" disabled={busy} onClick={refreshDocs}>Documents</button></div>}
+            </div>
+            {collectors ? (
+              <table>
+                <thead><tr><th className="left">Flux</th><th className="left">Source</th><th className="left">Dernier passage</th><th className="left">Résultat</th></tr></thead>
+                <tbody>
+                  <tr><td className="left">Cote en direct</td><td className="left muted">{collectors.quotes.provider === "live" ? "brvm.org / Sika Finance" : "simulation (sites injoignables)"}</td><td className="left mono">{fmtDateTime(collectors.quotes.serverTime)}</td><td className="left"><span className={`badge ${collectors.quotes.provider === "live" ? "buy" : "avoid"}`}>{collectors.quotes.provider === "live" ? "en direct" : "simulation"}</span> {collectors.quotes.open ? "séance ouverte" : "hors séance"}</td></tr>
+                  <tr><td className="left">Bulletin officiel</td><td className="left muted">{collectors.bulletin.auto ? "brvm.org (PDF quotidien)" : collectors.bulletin.sources.join(", ") || "désactivé"}</td><td className="left mono">{collectors.bulletin.lastRun ? fmtDateTime(collectors.bulletin.lastRun.at) : "—"}</td><td className="left">{collectors.bulletin.lastRun ? (collectors.bulletin.lastRun.ok ? `${collectors.bulletin.sessions} séance(s) en base · dernière ${collectors.bulletin.lastSession ? fmtDate(collectors.bulletin.lastSession) : "—"} (${collectors.bulletin.symbolsLastSession} valeurs${collectors.bulletin.lastRun.bonds ? `, ${collectors.bulletin.lastRun.bonds} obligations` : ""}${collectors.bulletin.lastRun.dividends ? `, ${collectors.bulletin.lastRun.dividends} dividendes` : ""}${collectors.bulletin.lastRun.notices ? `, ${collectors.bulletin.lastRun.notices} avis` : ""})` : <span className="down">{collectors.bulletin.lastRun.error}</span>) : `${collectors.bulletin.sessions} séance(s) en base`}</td></tr>
+                  <tr><td className="left">Historique réel des cours</td><td className="left muted">{collectors.history.source}</td><td className="left mono">{collectors.history.lastRun ? fmtDateTime(collectors.history.lastRun.at) : "—"}</td><td className="left">{Math.round(collectors.history.realCoverage * 100)} % des valeurs avec séances réelles{collectors.history.lastRun ? ` · ${collectors.history.lastRun.ok} valeur(s), ${collectors.history.lastRun.inserted} séance(s)${collectors.history.lastRun.failed.length ? `, ${collectors.history.lastRun.failed.length} échec(s)` : ""}` : ""}{collectors.history.lastCapRun ? ` · capitalisations : ${collectors.history.lastCapRun.updated} profil(s)` : ""}</td></tr>
+                  <tr><td className="left">Obligations</td><td className="left muted">bulletin officiel · brvm.org</td><td className="left mono">{collectors.bonds.lastRun ? fmtDateTime(collectors.bonds.lastRun.at) : "—"}</td><td className="left">{collectors.bonds.quoted} / {collectors.bonds.total} lignes avec cours officiel récent{collectors.bonds.lastRun && !collectors.bonds.lastRun.ok ? <span className="down"> · {collectors.bonds.lastRun.error}</span> : ""}</td></tr>
+                  <tr><td className="left">Dividendes</td><td className="left muted">bulletin officiel · Sika Finance · avis</td><td className="left mono">{collectors.dividends.lastSikaRun ? fmtDateTime(collectors.dividends.lastSikaRun.at) : "—"}</td><td className="left">{collectors.dividends.dividends} dividende(s) sur {collectors.dividends.symbolsWithDividends} valeur(s){collectors.dividends.lastSikaRun ? ` · Sika : ${collectors.dividends.lastSikaRun.history} exercice(s)` : ""}</td></tr>
+                  <tr><td className="left">Documents des sociétés</td><td className="left muted">{collectors.documents.sources.map((x) => x.name).join(" · ")}</td><td className="left mono">{collectors.documents.lastRun ? fmtDateTime(collectors.documents.lastRun.at) : "—"}</td><td className="left">{collectors.documents.documents} document(s) de {collectors.documents.companies} société(s){collectors.documents.lastRun?.failed.length ? <span className="down"> · échecs : {collectors.documents.lastRun.failed.slice(0, 2).join(" ; ")}</span> : ""}</td></tr>
+                  <tr><td className="left">Actualité</td><td className="left muted">{collectors.news.sources.join(" · ")}</td><td className="left mono">{collectors.news.lastRun ? fmtDateTime(collectors.news.lastRun.at) : "—"}</td><td className="left">{collectors.news.items} article(s){collectors.news.lastRun?.failed.length ? <span className="down"> · injoignables : {collectors.news.lastRun.failed.join(", ")}</span> : ""}</td></tr>
+                  <tr><td className="left">Fondamentaux</td><td className="left muted">publications collectées · PER du bulletin</td><td className="left mono">{collectors.fundamentals.lastScan ? fmtDateTime(collectors.fundamentals.lastScan.at) : "—"}</td><td className="left">{collectors.fundamentals.records} période(s) sur {collectors.fundamentals.companies} société(s)</td></tr>
+                  <tr><td className="left">Modèle de panel</td><td className="left muted">historique ajusté · dividendes · fondamentaux</td><td className="left mono">{collectors.panel.computedAt ? fmtDateTime(collectors.panel.computedAt) : "—"}</td><td className="left">{collectors.panel.symbols} valeurs{collectors.panel.asOf ? ` · au ${fmtDate(collectors.panel.asOf)}` : ""}</td></tr>
+                </tbody>
+              </table>
+            ) : <p className="muted">Chargement…</p>}
+            {collectors && <p className="muted" style={{ fontSize: 11, marginTop: 8 }}>Politique de collecte · BRVM : {collectors.policy.brvm} · Sika Finance : {collectors.policy.sika} · RichBourse : {collectors.policy.richbourse}.</p>}
+          </div>
+          {histStatus && (
+            <div className="card">
+              <div className="card-head"><h3>Historique réel par valeur</h3><span className="muted" style={{ fontSize: 12 }}>Avant la première séance réelle, l'historique est synthétique et recalé pour se raccorder sans rupture ; il ne décrit pas le marché.</span></div>
+              <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+                {histStatus.symbols.map((s) => <span key={s.symbol} className={`chip ${s.realSince ? "" : "excl"}`} title={s.realSince ? `réel depuis ${fmtDate(s.realSince)} · ${s.realCandles} séance(s) réelle(s) sur ${s.candles}` : "aucune séance réelle"}>{s.symbol}{s.realSince ? ` · ${s.realCandles}` : ""}</span>)}
+              </div>
+            </div>
+          )}
         </div>
       )}
       {tab === "fondamentaux" && (

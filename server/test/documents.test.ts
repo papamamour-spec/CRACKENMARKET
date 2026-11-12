@@ -85,7 +85,9 @@ describe("documents des sociétés", () => {
       { name: "société", url: "https://ex.com/societe/{symbol}", perCompany: true },
       { name: "ko", url: "https://ko.example/x" },
     ], fetchImpl);
+    process.env.DOC_COLLECT = "0"; // sources configurées seulement, sans l'exploration de brvm.org
     const n = await svc2.refresh(["SNTS", "ORAC"]);
+    delete process.env.DOC_COLLECT;
     expect(n).toBe(4 + 2);
     const st = svc2.status();
     expect(st.lastRun!.ok).toEqual(["liste", "société"]);

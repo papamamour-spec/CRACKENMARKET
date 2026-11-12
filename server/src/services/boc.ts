@@ -3,9 +3,15 @@ import * as cheerio from "cheerio";
 import type { DB } from "../db/index.js";
 import { INSTRUMENT_MAP } from "../data/instruments.js";
 import { parseBocText, parseLayoutConfig, type BocField, type BocRow } from "../data/boc.js";
+import { looksLikeBrvmBulletin, parseBrvmBulletin, type BrvmBulletin } from "../data/brvmBulletin.js";
+import { parseBulletinLinks } from "../data/brvmSite.js";
 import { isTradingDay } from "../data/providers/simulation.js";
 import type { OfficialSeries } from "../engine/forecast.js";
 import type { MarketService } from "./market.js";
+import type { BondService } from "./bonds.js";
+import type { CorporateService } from "./corporate.js";
+import type { NewsService } from "./news.js";
+import { politeBytes, politeText } from "./fetchPolicy.js";
 
 export interface DailyStat {
   symbol: string;
@@ -27,6 +33,12 @@ export interface DailyStat {
   imbalance: number | null;
   reserved: "up" | "down" | null;
   suspended: boolean;
+  /** données du bulletin officiel : PER, rendement net, dernier dividende net et sa date, variation de l'année */
+  per: number | null;
+  yieldPct: number | null;
+  lastDividend: number | null;
+  lastDividendDate: number | null;
+  ytdPct: number | null;
   source: string;
   fetchedAt: number;
 }
@@ -37,13 +49,16 @@ export interface BocStatus {
   sessions: number;
   lastSession: number | null;
   symbolsLastSession: number;
-  lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null } | null;
+  lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null; bonds?: number; dividends?: number; notices?: number } | null;
   pdfSupport: boolean;
+  /** collecte automatique des bulletins officiels sur brvm.org */
+  auto: boolean;
 }
 
-interface StatRow { symbol: string; ts: number; ref_price: number | null; open: number | null; high: number | null; low: number | null; close: number | null; change_pct: number | null; volume: number | null; value: number | null; trades: number | null; bid: number | null; bid_qty: number | null; ask: number | null; ask_qty: number | null; reserved: "up" | "down" | null; suspended: number; source: string; fetched_at: number }
+interface StatRow { symbol: string; ts: number; ref_price: number | null; open: number | null; high: number | null; low: number | null; close: number | null; change_pct: number | null; volume: number | null; value: number | null; trades: number | null; bid: number | null; bid_qty: number | null; ask: number | null; ask_qty: number | null; reserved: "up" | "down" | null; suspended: number; source: string; fetched_at: number; per: number | null; yield_pct: number | null; last_dividend: number | null; last_dividend_date: number | null; ytd_pct: number | null }
 
 const dayUtc = (ts: number) => { const d = new Date(ts); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+export const BRVM_BULLETIN_INDEX = "https://www.brvm.org/fr/bulletins-officiels-de-la-cote";
 
 /** Remplace les jetons de date d'un modèle d'URL ({YYYY}, {MM}, {DD}, {YYYYMMDD}, {DD-MM-YYYY}, {DD/MM/YYYY}). */
 export function expandSourceUrl(template: string, ts: number): string {
@@ -102,29 +117,52 @@ export async function pdfToText(data: Uint8Array): Promise<string> {
   return out.join("\n");
 }
 
+/** Lignes de cote d'un bulletin officiel au format générique de `daily_stats`. */
+export function bulletinToRows(b: BrvmBulletin): (BocRow & { per: number | null; yieldPct: number | null; lastDividend: number | null; lastDividendDate: number | null; ytdPct: number | null })[] {
+  const book = new Map(b.equityBook.map((l) => [l.symbol, l]));
+  return b.equities.map((e) => {
+    const bk = book.get(e.symbol);
+    return { symbol: e.symbol, ref: e.prev ?? e.ref, open: e.open, high: null, low: null, close: e.close ?? (e.suspended || e.nonQuoted ? null : e.ref), changePct: e.changePct, volume: e.volume ?? 0, value: e.value, trades: null, bid: bk?.bid ?? null, bidQty: bk?.bidQty ?? null, ask: bk?.ask ?? null, askQty: bk?.askQty ?? null, reserved: null, suspended: e.suspended, per: e.per, yieldPct: e.yieldPct, lastDividend: e.lastDividendNet, lastDividendDate: e.lastDividendDate, ytdPct: e.ytdPct };
+  });
+}
+
 /**
- * Collecte du bulletin officiel de la cote : sources configurées (`BOC_SOURCES`, modèles d'URL avec
- * jetons de date, PDF ou HTML), import collé par un administrateur, stockage par séance
- * (`daily_stats`), application aux bougies officielles et aux meilleures limites du carnet,
- * séries alignées pour le moteur de prévision.
+ * Collecte du bulletin officiel de la cote. Par défaut, les bulletins quotidiens sont découverts sur
+ * la page des bulletins de brvm.org (PDF `boc_AAAAMMJJ_n.pdf`) et lus avec le lecteur du format réel
+ * (`data/brvmBulletin.ts`) : cours et carnet des actions, obligations, dernier dividende et PER par
+ * valeur, avis et communiqués. `BOC_SOURCES` permet d'ajouter d'autres modèles d'URL (PDF ou HTML,
+ * jetons de date), lus avec le lecteur générique. Un administrateur peut aussi coller un bulletin.
  */
 export class BocService extends EventEmitter {
   readonly sources: string[];
   readonly columns: BocField[] | null;
+  readonly auto: boolean;
   private lastRun: BocStatus["lastRun"] = null;
   private timer: NodeJS.Timeout | null = null;
+  private bonds: BondService | null = null;
+  private corporate: CorporateService | null = null;
+  private news: NewsService | null = null;
+  private running = false;
 
   constructor(private readonly db: DB, private readonly market: MarketService, private readonly fetchImpl: typeof fetch = fetch) {
     super();
     this.sources = (process.env.BOC_SOURCES ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     this.columns = parseLayoutConfig(process.env.BOC_COLUMNS);
+    this.auto = process.env.BOC_AUTO !== "0";
     this.publishBooks();
   }
 
+  /** Obligations, dividendes et actualité : destinataires des autres sections du bulletin. */
+  attach(bonds: BondService | null, corporate: CorporateService | null, news: NewsService | null): void {
+    this.bonds = bonds;
+    this.corporate = corporate;
+    this.news = news;
+  }
+
   start(): void {
-    if (!this.sources.length) return;
-    const run = () => this.refresh().catch((e) => console.warn(`[boc] ${(e as Error).message}`));
-    setTimeout(run, 20_000);
+    if (!this.auto && !this.sources.length) return;
+    const run = () => void this.refresh().catch((e) => console.warn(`[boc] ${(e as Error).message}`));
+    setTimeout(run, 30_000);
     this.timer = setInterval(run, 60 * 60_000);
   }
 
@@ -147,66 +185,132 @@ export class BocService extends EventEmitter {
   }
 
   hasSession(ts: number): boolean {
-    return !!this.db.prepare("SELECT 1 FROM daily_stats WHERE ts = ? LIMIT 1").get(ts);
+    return !!this.db.prepare("SELECT 1 FROM daily_stats WHERE ts = ? AND source LIKE 'brvm%' LIMIT 1").get(ts);
   }
 
-  /** Collecte les séances récentes manquantes sur chaque source. */
-  async refresh(force = false): Promise<BocStatus["lastRun"]> {
-    if (!this.sources.length) {
-      this.lastRun = { at: Date.now(), ok: false, session: null, rows: 0, applied: 0, source: null, error: "aucune source configurée (BOC_SOURCES)" };
-      return this.lastRun;
-    }
-    let lastErr: string | null = null;
-    for (const session of this.candidateSessions()) {
-      if (!force && this.hasSession(session)) continue;
-      for (const template of this.sources) {
-        const url = expandSourceUrl(template, session);
+  /** Télécharge et lit une adresse (PDF ou HTML) ; renvoie le texte. */
+  private async fetchText(url: string): Promise<string> {
+    const { bytes, contentType } = await politeBytes(url, { fetchImpl: this.fetchImpl, timeoutMs: 60_000 });
+    const isPdf = contentType.includes("pdf") || (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46);
+    if (isPdf) return pdfToText(bytes);
+    const text = new TextDecoder().decode(bytes);
+    // texte déjà extrait (bulletin ou export « ; ») : pas de conversion HTML
+    return looksLikeBrvmBulletin(text) || !/<\s*(html|table|body)\b/i.test(text) ? text : htmlToBocText(text);
+  }
+
+  /**
+   * Collecte : bulletins officiels manquants (page des bulletins de brvm.org, jusqu'à `maxSessions`
+   * séances récentes), puis les sources configurées pour les séances candidates sans bulletin.
+   */
+  async refresh(force = false, maxSessions = 5): Promise<BocStatus["lastRun"]> {
+    if (this.running) return this.lastRun;
+    this.running = true;
+    try {
+      let lastErr: string | null = null;
+      if (this.auto) {
         try {
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 20_000);
-          const res = await this.fetchImpl(url, { signal: ctrl.signal, headers: { "user-agent": "CrackenMarket/0.1 (+boc-collector)" } });
-          clearTimeout(t);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const buf = new Uint8Array(await res.arrayBuffer());
-          const isPdf = (res.headers.get("content-type") ?? "").includes("pdf") || (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46);
-          const text = isPdf ? await pdfToText(buf) : htmlToBocText(new TextDecoder().decode(buf));
-          const r = this.importText(text, session, url);
-          if (r.applied > 0) {
-            this.lastRun = { at: Date.now(), ok: true, session: r.session, rows: r.rows, applied: r.applied, source: url, error: null };
+          const html = await politeText(BRVM_BULLETIN_INDEX, { fetchImpl: this.fetchImpl });
+          const links = parseBulletinLinks(html).filter((l) => force || !this.hasSession(l.sessionTs)).slice(0, maxSessions).reverse();
+          let applied = 0;
+          let last: ReturnType<BocService["importText"]> | null = null;
+          for (const l of links) {
+            try {
+              last = this.importText(await this.fetchText(l.url), l.sessionTs, `brvm:${l.url}`);
+              applied++;
+            } catch (e) {
+              lastErr = `${l.url} : ${(e as Error).message}`;
+            }
+          }
+          if (last) {
+            this.lastRun = { at: Date.now(), ok: true, session: last.session, rows: last.rows, applied: last.applied, source: BRVM_BULLETIN_INDEX, error: lastErr, bonds: last.bonds, dividends: last.dividends, notices: last.notices };
             return this.lastRun;
           }
-          lastErr = `${url} : aucune ligne reconnue`;
+          if (!links.length && !lastErr) lastErr = "aucun bulletin nouveau sur brvm.org";
         } catch (e) {
-          lastErr = `${url} : ${(e as Error).message}`;
+          lastErr = `${BRVM_BULLETIN_INDEX} : ${(e as Error).message}`;
         }
       }
+      for (const session of this.candidateSessions()) {
+        if (!force && this.hasSession(session)) continue;
+        for (const template of this.sources) {
+          const url = expandSourceUrl(template, session);
+          try {
+            const r = this.importText(await this.fetchText(url), session, url);
+            if (r.applied > 0) {
+              this.lastRun = { at: Date.now(), ok: true, session: r.session, rows: r.rows, applied: r.applied, source: url, error: null };
+              return this.lastRun;
+            }
+            lastErr = `${url} : aucune ligne reconnue`;
+          } catch (e) {
+            lastErr = `${url} : ${(e as Error).message}`;
+          }
+        }
+      }
+      const configured = this.auto || this.sources.length > 0;
+      this.lastRun = { at: Date.now(), ok: lastErr == null && configured, session: null, rows: 0, applied: 0, source: null, error: lastErr ?? (configured ? "rien à collecter (séances déjà en base)" : "aucune source configurée (BOC_SOURCES) et collecte automatique désactivée") };
+      return this.lastRun;
+    } finally {
+      this.running = false;
     }
-    this.lastRun = { at: Date.now(), ok: lastErr == null, session: null, rows: 0, applied: 0, source: null, error: lastErr ?? "rien à collecter (séances déjà en base)" };
-    return this.lastRun;
   }
 
   /** Import d'un bulletin (texte collé ou extrait) ; la date passée l'emporte sur celle du texte. */
-  importText(text: string, sessionTs: number | null = null, source = "import"): { session: number; rows: number; applied: number; unrecognized: number; layout: BocField[]; layoutSource: string } {
+  importText(text: string, sessionTs: number | null = null, source = "import"): { session: number; rows: number; applied: number; unrecognized: number; layout: BocField[] | "bulletin BRVM"; layoutSource: string; bonds: number; dividends: number; notices: number } {
+    if (looksLikeBrvmBulletin(text)) {
+      const b = parseBrvmBulletin(text);
+      const session = sessionTs != null ? dayUtc(sessionTs) : b.sessionTs;
+      if (session == null) throw new Error("Date de séance introuvable dans le bulletin.");
+      const rows = bulletinToRows(b);
+      const applied = this.apply(rows, session, source.startsWith("brvm") ? source : `brvm-bulletin:${source}`);
+      const extra = this.applyBulletinExtras(b, session, source);
+      return { session, rows: rows.length, applied, unrecognized: 0, layout: "bulletin BRVM", layoutSource: "bulletin", ...extra };
+    }
     const parsed = parseBocText(text, this.columns);
     const session = sessionTs != null ? dayUtc(sessionTs) : parsed.sessionTs;
     if (session == null) throw new Error("Date de séance introuvable : précisez-la.");
     if (!parsed.rows.length) throw new Error("Aucune ligne de cote reconnue (le symbole BRVM doit ouvrir chaque ligne).");
     const applied = this.apply(parsed.rows, session, source);
-    return { session, rows: parsed.rows.length, applied, unrecognized: parsed.unrecognized, layout: parsed.layout, layoutSource: parsed.layoutSource };
+    return { session, rows: parsed.rows.length, applied, unrecognized: parsed.unrecognized, layout: parsed.layout, layoutSource: parsed.layoutSource, bonds: 0, dividends: 0, notices: 0 };
+  }
+
+  /** Obligations, dividendes, avis et communiqués du bulletin vers les services concernés. */
+  private applyBulletinExtras(b: BrvmBulletin, session: number, source: string): { bonds: number; dividends: number; notices: number } {
+    let bonds = 0;
+    let dividends = 0;
+    let notices = 0;
+    if (this.bonds && b.bonds.length) {
+      const rows = b.bonds.filter((x) => x.nominal && x.nominal > 0).map((x) => ({ code: x.code, label: x.name, closePct: x.close != null ? Math.round((x.close / x.nominal!) * 10000) / 100 : x.ref != null ? Math.round((x.ref / x.nominal!) * 10000) / 100 : null, prevPct: x.prev != null ? Math.round((x.prev / x.nominal!) * 10000) / 100 : null, volume: x.volume ?? 0, suspended: x.suspended }));
+      try { const r = this.bonds.applyCote(rows, "brvm", session, true); bonds = r.inserted + r.updated; } catch (e) { console.warn(`[boc] obligations : ${(e as Error).message}`); }
+    }
+    if (this.corporate) {
+      for (const e of b.equities) {
+        if (e.lastDividendNet == null || e.lastDividendDate == null || !INSTRUMENT_MAP.has(e.symbol)) continue;
+        // le bulletin donne la date de paiement du dernier dividende : il rémunère l'exercice précédent
+        const fiscalYear = new Date(e.lastDividendDate).getUTCFullYear() - 1;
+        if (fiscalYear < 2015) continue;
+        try { this.corporate.upsertDividend({ symbol: e.symbol, fiscalYear, net: e.lastDividendNet, paymentDate: e.lastDividendDate, status: "payé", source: "auto · bulletin BRVM" }, null); dividends++; } catch { /* montant absent ou ligne incohérente */ }
+      }
+    }
+    if (this.news && b.notices.length) {
+      const url = source.startsWith("brvm:") ? source.slice(5) : BRVM_BULLETIN_INDEX;
+      const items = b.notices.map((n) => ({ title: `${n.issuer} : ${n.nature ? `${n.nature} — ` : ""}${n.subject}`.slice(0, 300), url: `${url}#${n.section}-${encodeURIComponent(n.issuer)}-${n.number ?? ""}`, summary: `${n.section === "avis" ? "Avis" : n.section === "communiques" ? "Communiqué" : "Opération en cours"} publié au bulletin officiel de la cote du ${new Date(session).toLocaleDateString("fr-FR")}.`, publishedAt: session }));
+      notices = this.news.ingest("Bulletin officiel BRVM", items, 1, true);
+    }
+    return { bonds, dividends, notices };
   }
 
   /** Enregistre les lignes d'une séance, met à jour les bougies officielles et les meilleures limites. */
-  apply(rows: BocRow[], session: number, source: string): number {
+  apply(rows: (BocRow & Partial<{ per: number | null; yieldPct: number | null; lastDividend: number | null; lastDividendDate: number | null; ytdPct: number | null }>)[], session: number, source: string): number {
     const ins = this.db.prepare(
-      `INSERT INTO daily_stats(symbol, ts, ref_price, open, high, low, close, change_pct, volume, value, trades, bid, bid_qty, ask, ask_qty, reserved, suspended, source, fetched_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(symbol, ts) DO UPDATE SET ref_price=COALESCE(excluded.ref_price, daily_stats.ref_price), open=COALESCE(excluded.open, daily_stats.open), high=COALESCE(excluded.high, daily_stats.high), low=COALESCE(excluded.low, daily_stats.low), close=COALESCE(excluded.close, daily_stats.close), change_pct=COALESCE(excluded.change_pct, daily_stats.change_pct), volume=COALESCE(excluded.volume, daily_stats.volume), value=COALESCE(excluded.value, daily_stats.value), trades=COALESCE(excluded.trades, daily_stats.trades), bid=COALESCE(excluded.bid, daily_stats.bid), bid_qty=COALESCE(excluded.bid_qty, daily_stats.bid_qty), ask=COALESCE(excluded.ask, daily_stats.ask), ask_qty=COALESCE(excluded.ask_qty, daily_stats.ask_qty), reserved=COALESCE(excluded.reserved, daily_stats.reserved), suspended=excluded.suspended, source=excluded.source, fetched_at=excluded.fetched_at`,
+      `INSERT INTO daily_stats(symbol, ts, ref_price, open, high, low, close, change_pct, volume, value, trades, bid, bid_qty, ask, ask_qty, reserved, suspended, source, fetched_at, per, yield_pct, last_dividend, last_dividend_date, ytd_pct)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(symbol, ts) DO UPDATE SET ref_price=COALESCE(excluded.ref_price, daily_stats.ref_price), open=COALESCE(excluded.open, daily_stats.open), high=COALESCE(excluded.high, daily_stats.high), low=COALESCE(excluded.low, daily_stats.low), close=COALESCE(excluded.close, daily_stats.close), change_pct=COALESCE(excluded.change_pct, daily_stats.change_pct), volume=COALESCE(excluded.volume, daily_stats.volume), value=COALESCE(excluded.value, daily_stats.value), trades=COALESCE(excluded.trades, daily_stats.trades), bid=COALESCE(excluded.bid, daily_stats.bid), bid_qty=COALESCE(excluded.bid_qty, daily_stats.bid_qty), ask=COALESCE(excluded.ask, daily_stats.ask), ask_qty=COALESCE(excluded.ask_qty, daily_stats.ask_qty), reserved=COALESCE(excluded.reserved, daily_stats.reserved), suspended=excluded.suspended, source=excluded.source, fetched_at=excluded.fetched_at, per=COALESCE(excluded.per, daily_stats.per), yield_pct=COALESCE(excluded.yield_pct, daily_stats.yield_pct), last_dividend=COALESCE(excluded.last_dividend, daily_stats.last_dividend), last_dividend_date=COALESCE(excluded.last_dividend_date, daily_stats.last_dividend_date), ytd_pct=COALESCE(excluded.ytd_pct, daily_stats.ytd_pct)`,
     );
     let n = 0;
     const tx = this.db.transaction(() => {
       for (const r of rows) {
         if (!INSTRUMENT_MAP.has(r.symbol)) continue;
-        ins.run(r.symbol, session, r.ref, r.open, r.high, r.low, r.close, r.changePct, r.volume, r.value, r.trades, r.bid, r.bidQty, r.ask, r.askQty, r.reserved, r.suspended ? 1 : 0, source, Date.now());
+        ins.run(r.symbol, session, r.ref, r.open, r.high, r.low, r.close, r.changePct, r.volume, r.value, r.trades, r.bid, r.bidQty, r.ask, r.askQty, r.reserved, r.suspended ? 1 : 0, source, Date.now(), r.per ?? null, r.yieldPct ?? null, r.lastDividend ?? null, r.lastDividendDate ?? null, r.ytdPct ?? null);
         n++;
         const close = r.close ?? (r.volume === 0 ? r.ref : null);
         if (close != null && close > 0) {
@@ -233,7 +337,7 @@ export class BocService extends EventEmitter {
     const bidV = r.bid != null && r.bid_qty != null ? r.bid * r.bid_qty : null;
     const askV = r.ask != null && r.ask_qty != null ? r.ask * r.ask_qty : null;
     const imbalance = bidV != null && askV != null && bidV + askV > 0 ? Math.round(((bidV - askV) / (bidV + askV)) * 100) / 100 : bidV != null && askV == null && r.ask == null ? 1 : askV != null && bidV == null && r.bid == null ? -1 : null;
-    return { symbol: r.symbol, ts: r.ts, ref: r.ref_price, open: r.open, high: r.high, low: r.low, close: r.close, changePct: r.change_pct, volume: r.volume, value: r.value, trades: r.trades, bid: r.bid, bidQty: r.bid_qty, ask: r.ask, askQty: r.ask_qty, imbalance, reserved: r.reserved, suspended: !!r.suspended, source: r.source, fetchedAt: r.fetched_at };
+    return { symbol: r.symbol, ts: r.ts, ref: r.ref_price, open: r.open, high: r.high, low: r.low, close: r.close, changePct: r.change_pct, volume: r.volume, value: r.value, trades: r.trades, bid: r.bid, bidQty: r.bid_qty, ask: r.ask, askQty: r.ask_qty, imbalance, reserved: r.reserved, suspended: !!r.suspended, per: r.per ?? null, yieldPct: r.yield_pct ?? null, lastDividend: r.last_dividend ?? null, lastDividendDate: r.last_dividend_date ?? null, ytdPct: r.ytd_pct ?? null, source: r.source, fetchedAt: r.fetched_at };
   }
 
   stats(symbol: string, limit = 60): DailyStat[] {
@@ -243,6 +347,12 @@ export class BocService extends EventEmitter {
   latest(symbol: string): DailyStat | null {
     const r = this.db.prepare("SELECT * FROM daily_stats WHERE symbol = ? ORDER BY ts DESC LIMIT 1").get(symbol.toUpperCase()) as StatRow | undefined;
     return r ? this.view(r) : null;
+  }
+
+  /** PER officiel connu à une date (dernier bulletin antérieur ou égal), pour le rendement bénéficiaire daté. */
+  perAt(symbol: string, ts: number): number | null {
+    const r = this.db.prepare("SELECT per FROM daily_stats WHERE symbol = ? AND ts <= ? AND per IS NOT NULL ORDER BY ts DESC LIMIT 1").get(symbol.toUpperCase(), ts) as { per: number } | undefined;
+    return r?.per ?? null;
   }
 
   /** Toutes les lignes d'une séance (la dernière par défaut). */
@@ -274,7 +384,7 @@ export class BocService extends EventEmitter {
   status(): BocStatus {
     const agg = this.db.prepare("SELECT COUNT(DISTINCT ts) AS sessions, MAX(ts) AS last FROM daily_stats").get() as { sessions: number; last: number | null };
     const n = agg.last != null ? (this.db.prepare("SELECT COUNT(*) AS n FROM daily_stats WHERE ts = ?").get(agg.last) as { n: number }).n : 0;
-    return { sources: this.sources, columns: this.columns, sessions: agg.sessions, lastSession: agg.last, symbolsLastSession: n, lastRun: this.lastRun, pdfSupport: true };
+    return { sources: [...(this.auto ? [BRVM_BULLETIN_INDEX] : []), ...this.sources], columns: this.columns, sessions: agg.sessions, lastSession: agg.last, symbolsLastSession: n, lastRun: this.lastRun, pdfSupport: true, auto: this.auto };
   }
 }
 

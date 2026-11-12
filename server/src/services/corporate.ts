@@ -6,6 +6,8 @@ import { detectSplits, parseDividendNotice, type CorporateAction, type Corporate
 import type { MarketService } from "./market.js";
 import type { NewsService } from "./news.js";
 import type { DocumentService } from "./documents.js";
+import { parseSikaDividends } from "../data/sika.js";
+import { politeText } from "./fetchPolicy.js";
 
 /**
  * Retenue à la source appliquée aux dividendes (IRVM, 10 % pour les sociétés cotées dans la
@@ -285,6 +287,32 @@ export class CorporateService extends EventEmitter {
     }
     return n;
   }
+
+  /**
+   * Dividendes publiés par Sika Finance (page « dividendes ») : historique par exercice (montants
+   * nets) et détachements à venir. Source automatique : complète sans écraser les saisies.
+   */
+  async refreshFromSika(fetchImpl: typeof fetch = fetch, base = process.env.SIKA_BASE ?? "https://www.sikafinance.com"): Promise<{ history: number; upcoming: number }> {
+    const html = await politeText(`${base}/marches/dividendes`, { fetchImpl });
+    const { history, upcoming } = parseSikaDividends(html);
+    let h = 0;
+    let u = 0;
+    for (const c of history) {
+      if (!INSTRUMENT_MAP.has(c.symbol)) continue;
+      for (const y of c.byYear) {
+        try { this.upsertDividend({ symbol: c.symbol, fiscalYear: y.year, net: y.amount, source: "auto · Sika Finance", url: `${base}/marches/dividendes` }, null); h++; } catch { /* ligne incohérente */ }
+      }
+    }
+    for (const up of upcoming) {
+      if (!up.symbol || !INSTRUMENT_MAP.has(up.symbol) || up.amount == null) continue;
+      const fiscalYear = new Date(up.exDate ?? Date.now()).getUTCFullYear() - 1;
+      try { this.upsertDividend({ symbol: up.symbol, fiscalYear, net: up.amount, exDate: up.exDate, status: "approuvé", source: "auto · Sika Finance", url: `${base}/marches/dividendes` }, null); u++; } catch { /* idem */ }
+    }
+    this.lastSikaRun = { at: Date.now(), history: h, upcoming: u };
+    return { history: h, upcoming: u };
+  }
+
+  lastSikaRun: { at: number; history: number; upcoming: number } | null = null;
 
   // ---------- Lectures pour les autres services ----------
 

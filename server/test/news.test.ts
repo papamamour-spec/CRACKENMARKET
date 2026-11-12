@@ -50,15 +50,15 @@ describe("veille d'actualité", () => {
 const HTML = `<html><body><nav><a href="/">Accueil</a><a href="/marches">Marchés</a></nav>
 <ul class="list">
 <li><a href="/actualites/sonatel-dividende-2026">Sonatel annonce un dividende record pour l'exercice 2026</a><time datetime="2026-10-01T08:00:00Z">1 oct.</time><p>Le conseil propose 1 700 FCFA par action.</p></li>
-<li><a href="https://www.richbourse.com/actualites/brvm-composite-recul">La BRVM Composite recule de 1,2 % dans un marché prudent</a></li>
+<li><a href="https://liste.example/actualites/brvm-composite-recul">La BRVM Composite recule de 1,2 % dans un marché prudent</a></li>
 <li><a href="https://autre-site.com/x/y/z">Un lien externe qui ne doit pas être retenu ici</a></li>
 <li><a href="/img/photo.jpg">Une image avec un titre assez long pour passer</a></li>
 </ul></body></html>`;
 
 describe("collecte élargie", () => {
   it("extrait les articles d'une page de liste générique", () => {
-    const items = parseHtmlList(HTML, "https://www.richbourse.com/common/actualites");
-    expect(items.map((i) => i.url)).toEqual(["https://www.richbourse.com/actualites/sonatel-dividende-2026", "https://www.richbourse.com/actualites/brvm-composite-recul"]);
+    const items = parseHtmlList(HTML, "https://liste.example/actualites");
+    expect(items.map((i) => i.url)).toEqual(["https://liste.example/actualites/sonatel-dividende-2026", "https://liste.example/actualites/brvm-composite-recul"]);
     expect(items[0].summary).toContain("1 700 FCFA");
     expect(new Date(items[0].publishedAt).toISOString()).toBe("2026-10-01T08:00:00.000Z");
   });
@@ -80,7 +80,7 @@ describe("collecte élargie", () => {
     const db = openMemoryDb();
     const fetchImpl = (async (url: string) => (String(url).includes("ko") ? new Response("", { status: 503 }) : new Response(HTML, { status: 200 }))) as unknown as typeof fetch;
     const news = new NewsService(db, [
-      { name: "RB", url: "https://www.richbourse.com/common/actualites", kind: "html-list", weight: 0.9, category: "bourse" },
+      { name: "RB", url: "https://liste.example/actualites", kind: "html-list", weight: 0.9, category: "bourse" },
       { name: "KO", url: "https://ko.example/feed", kind: "rss", weight: 0.5, category: "généraliste" },
     ], fetchImpl);
     const n = await news.refresh();
