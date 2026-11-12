@@ -10,6 +10,7 @@ import type { AdvisoryView } from "./services/advisory.js";
 
 interface ClientState {
   userId: number | null;
+  role: string | null;
   symbols: Set<string>; // vide = toutes les valeurs
 }
 
@@ -28,13 +29,15 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
   };
 
   wss.on("connection", (ws, req) => {
-    const state: ClientState = { userId: null, symbols: new Set() };
+    const state: ClientState = { userId: null, role: null, symbols: new Set() };
     clients.set(ws, state);
     const url = new URL(req.url ?? "/", "http://localhost");
     const token = url.searchParams.get("token");
     if (token) {
       try {
-        state.userId = s.auth.verify(token).sub;
+        const p0 = s.auth.verify(token);
+        state.userId = p0.sub;
+        state.role = p0.role ?? null;
       } catch {
         /* jeton invalide : connexion anonyme */
       }
@@ -49,7 +52,9 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
           const books = [...state.symbols].map((sym) => s.market.orderBook(sym)).filter((b): b is OrderBook => !!b);
           if (books.length) send(ws, { type: "books", books });
         } else if (msg.type === "auth" && typeof msg.token === "string") {
-          state.userId = s.auth.verify(msg.token).sub;
+          const p1 = s.auth.verify(msg.token);
+          state.userId = p1.sub;
+          state.role = p1.role ?? null;
           send(ws, { type: "auth_ok", userId: state.userId });
         } else if (msg.type === "ping") {
           send(ws, { type: "pong", ts: Date.now() });
@@ -96,6 +101,10 @@ export function attachWebSocket(server: Server, s: Services): WebSocketServer {
   });
   s.advisory.on("reviewed", (v: AdvisoryView) => {
     for (const [ws, st] of clients) if (st.userId === v.user_id) send(ws, { type: "advisory", request: { id: v.id, status: v.status, client_label: v.client_label, analyst_note: v.analyst_note } });
+  });
+  // alertes de qualité des données et du rapport du jour : aux administrateurs et analystes connectés
+  s.dataQuality.on("alert", (a: { kind: string; message: string }) => {
+    for (const [ws, st] of clients) if (st.role === "admin" || st.role === "analyst") send(ws, { type: "quality", kind: a.kind, message: a.message });
   });
   s.market.on("status", (status) => {
     for (const ws of clients.keys()) send(ws, { type: "status", status: { ...status, privateMode: config.privateMode } });

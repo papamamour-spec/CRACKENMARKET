@@ -74,6 +74,7 @@ export function Layout() {
         { to: "/alertes", label: "Suivi & alertes", icon: "☆" },
         { to: "/backtest", label: "Backtest", icon: "⟲" },
         { to: "/donnees", label: "Données officielles", icon: "▦", roles: ["analyst", "admin"] },
+        { to: "/qualite", label: "Qualité & risque du jour", icon: "✔", roles: ["analyst", "admin"] },
       ],
     },
     {

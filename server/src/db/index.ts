@@ -513,6 +513,20 @@ function migrate(d: DB): void {
       note TEXT,
       tracking_id INTEGER
     );
+    CREATE TABLE IF NOT EXISTS data_quality_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      score INTEGER NOT NULL,
+      errors INTEGER NOT NULL,
+      warnings INTEGER NOT NULL,
+      infos INTEGER NOT NULL,
+      report TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      date INTEGER PRIMARY KEY,         -- début de journée UTC
+      ts INTEGER NOT NULL,
+      report TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS model_versions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key TEXT NOT NULL,
