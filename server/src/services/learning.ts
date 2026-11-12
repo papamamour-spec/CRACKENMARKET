@@ -1,3 +1,4 @@
+import { spearman } from "../engine/evaluation.js";
 import { EventEmitter } from "node:events";
 import type { DB } from "../db/index.js";
 import { INSTRUMENTS } from "../data/instruments.js";
@@ -37,6 +38,10 @@ export interface LearningStats {
   brier: number | null;
   naiveHitRate: number | null; // « toujours en hausse »
   naiveMaePct: number | null; // prévision nulle
+  /** corrélation de rang (Spearman) entre prévu et réalisé, par jour de prévision (≥ 5 valeurs), moyenne */
+  rankIC: number | null;
+  rankICt: number | null;
+  rankICDays: number;
 }
 
 export interface LearningSummary {
@@ -267,6 +272,28 @@ export class LearningService extends EventEmitter {
     if (this.timer) clearInterval(this.timer);
   }
 
+  /** Corrélation de rang prévu / réalisé par jour de prévision, sur les prévisions résolues d'un horizon. */
+  rankIC(horizon: Horizon): { mean: number | null; tStat: number | null; days: number } {
+    const rows = this.db.prepare("SELECT made_day, expected_pct, realized_pct FROM forecast_log WHERE horizon = ? AND resolved_at IS NOT NULL ORDER BY made_day").all(horizon) as { made_day: string; expected_pct: number; realized_pct: number }[];
+    const byDay = new Map<string, { e: number[]; r: number[] }>();
+    for (const r of rows) {
+      const d = byDay.get(r.made_day) ?? { e: [], r: [] };
+      d.e.push(r.expected_pct);
+      d.r.push(r.realized_pct);
+      byDay.set(r.made_day, d);
+    }
+    const ics: number[] = [];
+    for (const d of byDay.values()) {
+      if (d.e.length < 5) continue;
+      const ic = spearman(d.e, d.r);
+      if (ic != null) ics.push(ic);
+    }
+    if (!ics.length) return { mean: null, tStat: null, days: 0 };
+    const m = ics.reduce((a, b) => a + b, 0) / ics.length;
+    const sd = ics.length > 1 ? Math.sqrt(ics.reduce((a, b) => a + (b - m) ** 2, 0) / (ics.length - 1)) : 0;
+    return { mean: Math.round(m * 1000) / 1000, tStat: sd > 0 ? Math.round((m / sd) * Math.sqrt(ics.length) * 100) / 100 : null, days: ics.length };
+  }
+
   summary(): LearningSummary {
     const byHorizon: LearningStats[] = (["1W", "1M", "3M"] as Horizon[]).map((h) => {
       const r = this.db
@@ -279,7 +306,8 @@ export class LearningService extends EventEmitter {
         .get(h) as { resolved: number; hit: number | null; mae: number | null; cov: number | null; brier: number | null; naive_hit: number | null; naive_mae: number | null };
       const pending = (this.db.prepare("SELECT COUNT(*) AS n FROM forecast_log WHERE horizon = ? AND resolved_at IS NULL").get(h) as { n: number }).n;
       const r2 = (v: number | null, k = 100) => (v == null ? null : Math.round(v * k) / k);
-      return { horizon: h, pending, resolved: r.resolved, hitRate: r2(r.hit), maePct: r2(r.mae, 10), coverage90: r2(r.cov), brier: r2(r.brier, 1000), naiveHitRate: r2(r.naive_hit), naiveMaePct: r2(r.naive_mae, 10) };
+      const ic = this.rankIC(h);
+      return { horizon: h, pending, resolved: r.resolved, hitRate: r2(r.hit), maePct: r2(r.mae, 10), coverage90: r2(r.cov), brier: r2(r.brier, 1000), naiveHitRate: r2(r.naive_hit), naiveMaePct: r2(r.naive_mae, 10), rankIC: ic.mean, rankICt: ic.tStat, rankICDays: ic.days };
     });
     const monthly = (
       this.db

@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
 import { HORIZON_LABEL, type ForecastRanking, type Horizon, type LearningSummary } from "../lib/types";
 import { SkeletonCard } from "../components/Skeleton";
+import { EvaluationCard } from "../components/EvaluationCard";
 
 /** Classement des valeurs par rendement attendu (pondéré par la confiance), avec précision mesurée. */
 export function ForecastsPage() {
@@ -85,6 +86,7 @@ export function ForecastsPage() {
             </table>
             <p className="disclaimer">Classement par rendement attendu × confiance. Les prévisions sont probabilistes : l'intervalle à 90 % indique la fourchette dans laquelle le rendement devrait se situer 9 fois sur 10 d'après la volatilité récente ; la précision est le taux de bonne direction mesuré sur des fenêtres passées non vues à l'apprentissage.</p>
           </div>
+          <EvaluationCard analyst={analyst} />
           {learning && (
             <div className="card">
               <div className="card-head">
@@ -95,7 +97,7 @@ export function ForecastsPage() {
                 <div style={{ minWidth: 0, overflowX: "auto" }}>
                   <h4>Précision réelle par horizon</h4>
                   <table>
-                    <thead><tr><th className="left">Horizon</th><th>Résolues</th><th>Direction</th><th>Référence</th><th>Erreur</th><th>Sans modèle</th><th>Intervalle 90 %</th><th>Brier</th></tr></thead>
+                    <thead><tr><th className="left">Horizon</th><th>Résolues</th><th>Direction</th><th>Référence</th><th>Erreur</th><th>Sans modèle</th><th>Intervalle 90 %</th><th>Brier</th><th>IC de rang</th></tr></thead>
                     <tbody>
                       {learning.byHorizon.map((x) => (
                         <tr key={x.horizon}>
@@ -107,6 +109,7 @@ export function ForecastsPage() {
                           <td className="mono muted">{x.naiveMaePct != null ? `${x.naiveMaePct} %` : "—"}</td>
                           <td className="mono">{x.coverage90 != null ? `${Math.round(x.coverage90 * 100)} %` : "—"}</td>
                           <td className="mono">{x.brier ?? "—"}</td>
+                          <td className={`mono ${(x.rankIC ?? 0) > 0 ? "up" : x.rankIC != null ? "down" : "muted"}`} title={x.rankICDays ? `corrélation de rang prévu / réalisé, moyenne sur ${x.rankICDays} jour(s) de prévision${x.rankICt != null ? `, t = ${x.rankICt}` : ""}` : "au moins 5 valeurs résolues un même jour sont nécessaires"}>{x.rankIC != null ? x.rankIC.toFixed(3) : "—"}</td>
                         </tr>
                       ))}
                     </tbody>
