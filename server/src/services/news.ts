@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { parseBrvmNews } from "../data/brvmSite.js";
+import { parseSikaCommuniques, parseSikaNews } from "../data/sika.js";
+import { politeFetch } from "./fetchPolicy.js";
 import * as cheerio from "cheerio";
 import type { DB } from "../db/index.js";
 import { NEGATIVE_TERMS, NEWS_ALIASES, POSITIVE_TERMS } from "../data/news_aliases.js";
@@ -27,7 +30,7 @@ export interface NewsSentiment {
   headlines: { title: string; sentiment: number; source: string; url: string; published_at: number }[];
 }
 
-export type SourceKind = "rss" | "brvm-html" | "html-list";
+export type SourceKind = "rss" | "brvm-html" | "html-list" | "brvm-mediacentre" | "sika-news" | "sika-communiques";
 
 export interface NewsSource {
   name: string;
@@ -39,16 +42,15 @@ export interface NewsSource {
 }
 
 /**
- * Sources par défaut : la place (BRVM), les sites spécialisés BRVM (RichBourse, Sika Finance),
- * la presse économique régionale et un généraliste à forte audience.
+ * Sources par défaut : la place (mediacentre de la BRVM), Sika Finance (actualités du marché et
+ * communiqués des sociétés), la presse économique régionale et un généraliste à forte audience.
+ * RichBourse refuse l'extraction automatique : il n'est pas collecté. Formats vérifiés sur les pages réelles.
  * Complétées par NEWS_FEEDS=url1,url2 (flux RSS) ou NEWS_SOURCES_JSON=[{name,url,kind,weight}].
  */
 export const DEFAULT_SOURCES: NewsSource[] = [
-  { name: "BRVM", url: "https://www.brvm.org/fr/actualites", kind: "brvm-html", weight: 1, category: "officiel" },
-  { name: "BRVM — Avis et communiqués", url: "https://www.brvm.org/fr/avis-et-communiques", kind: "brvm-html", weight: 1, category: "officiel" },
-  { name: "RichBourse", url: "https://www.richbourse.com/common/actualites", kind: "html-list", weight: 0.9, category: "bourse" },
-  { name: "Sika Finance", url: "https://www.sikafinance.com/rss/actualites", kind: "rss", weight: 0.9, category: "bourse" },
-  { name: "Sika Finance — Marchés", url: "https://www.sikafinance.com/marches/actualites_bourse_brvm", kind: "html-list", weight: 0.9, category: "bourse" },
+  { name: "BRVM — Mediacentre", url: "https://www.brvm.org/fr/mediacentre/actualites", kind: "brvm-mediacentre", weight: 1, category: "officiel" },
+  { name: "Sika Finance — Marchés", url: "https://www.sikafinance.com/marches/actualites_bourse_brvm", kind: "sika-news", weight: 0.9, category: "bourse" },
+  { name: "Sika Finance — Communiqués des sociétés", url: "https://www.sikafinance.com/marches/communiques_brvm", kind: "sika-communiques", weight: 1, category: "officiel" },
   { name: "Financial Afrik", url: "https://www.financialafrik.com/feed/", kind: "rss", weight: 0.8, category: "presse économique" },
   { name: "Agence Ecofin", url: "https://www.agenceecofin.com/finance", kind: "html-list", weight: 0.8, category: "presse économique" },
   { name: "Abidjan.net — Économie", url: "https://news.abidjan.net/economie", kind: "html-list", weight: 0.6, category: "généraliste" },
@@ -223,6 +225,9 @@ export class NewsService extends EventEmitter {
   private parse(src: NewsSource, body: string): ParsedItem[] {
     if (src.kind === "rss") return parseRss(body);
     if (src.kind === "brvm-html") return parseBrvmHtml(body);
+    if (src.kind === "brvm-mediacentre") return parseBrvmNews(body).map((n) => ({ title: n.title, url: n.url, summary: n.summary, publishedAt: n.publishedAt ?? Date.now() }));
+    if (src.kind === "sika-news") return parseSikaNews(body).map((n) => ({ title: n.title, url: n.url, summary: n.summary, publishedAt: n.publishedAt ?? Date.now() }));
+    if (src.kind === "sika-communiques") return parseSikaCommuniques(body).map((c) => ({ title: c.title.replace(/\s*_\s*/g, " — "), url: c.url ?? src.url, summary: `Communiqué de ${c.company ?? "la société"} relayé par Sika Finance.`, publishedAt: c.date ?? Date.now() }));
     return parseHtmlList(body, src.url);
   }
 
@@ -234,8 +239,8 @@ export class NewsService extends EventEmitter {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 12_000);
-        const res = await this.fetchImpl(src.url, { signal: ctrl.signal, headers: { "user-agent": "CrackenMarket/0.1 (+veille-actualite)" } });
-        clearTimeout(t);
+
+        const res = await politeFetch(src.url, { fetchImpl: this.fetchImpl, timeoutMs: 20_000 });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.text();
         const items = this.parse(src, body);
@@ -254,15 +259,15 @@ export class NewsService extends EventEmitter {
     return inserted;
   }
 
-  /** Insère les articles nouveaux (dédoublonnés par URL) ; ne garde que ceux liés à la BRVM ou à une valeur. */
-  ingest(source: string, items: ParsedItem[], weight = 1): number {
+  /** Insère les articles nouveaux (dédoublonnés par URL) ; ne garde que ceux liés à la BRVM ou à une valeur, sauf `keepAll` (avis officiels : tout est gardé, sans valeur reconnue = place entière). */
+  ingest(source: string, items: ParsedItem[], weight = 1, keepAll = false): number {
     const insert = this.db.prepare("INSERT OR IGNORE INTO news_items(source, title, url, summary, published_at, symbols, sentiment, market_wide, fetched_at, weight) VALUES (?,?,?,?,?,?,?,?,?,?)");
     let n = 0;
     const tx = this.db.transaction(() => {
       for (const it of items) {
         const text = `${it.title}. ${it.summary ?? ""}`;
         const symbols = matchSymbols(text);
-        const market = isMarketWide(text);
+        const market = isMarketWide(text) || (keepAll && !symbols.length);
         if (!symbols.length && !market) continue;
         const info = insert.run(source, it.title, it.url, it.summary, it.publishedAt, JSON.stringify(symbols), scoreSentiment(text), market ? 1 : 0, Date.now(), weight);
         n += info.changes;

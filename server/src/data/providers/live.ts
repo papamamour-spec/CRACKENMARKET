@@ -1,5 +1,7 @@
-import * as cheerio from "cheerio";
 import { INSTRUMENT_MAP } from "../instruments.js";
+import { parseBrvmQuotes } from "../brvmSite.js";
+import { parseSikaQuoteList } from "../sika.js";
+import { politeFetch } from "../../services/fetchPolicy.js";
 import type { Candle } from "../../engine/indicators.js";
 import type { MarketDataProvider, Quote } from "./types.js";
 
@@ -7,8 +9,9 @@ import type { MarketDataProvider, Quote } from "./types.js";
  * Fournisseur « live » : lit la cote officielle publiée par la BRVM
  * (https://www.brvm.org) et, en secours, la page marché de Sikafinance.
  *
- * La BRVM ne publie pas d'API publique : on analyse le HTML de la page des cours.
- * Les sélecteurs sont regroupés ici pour être adaptés facilement si la mise en page change.
+ * La BRVM ne publie pas d'API publique : on lit le tableau HTML de la page des cours (format vérifié
+ * sur la page réelle, voir `data/brvmSite.ts`) ; la liste de A à Z de Sika Finance sert de secours.
+ * Les requêtes passent par `services/fetchPolicy.ts` (délais demandés par les sites).
  * Pour un flux officiel (flux SGI / BRVM Data), implémentez simplement `MarketDataProvider`.
  */
 const SOURCES = [
@@ -24,49 +27,14 @@ const SOURCES = [
   },
 ];
 
-function toNumber(txt: string): number {
-  const cleaned = txt.replace(/\s| /g, "").replace(/,/g, ".").replace(/[^0-9.\-]/g, "");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : NaN;
-}
-
+/** Page des cours de la BRVM (tableau Symbole, Nom, Volume, Veille, Ouverture, Clôture, Variation), vérifiée sur la page réelle. */
 function parseBrvmTable(html: string, ts: number): Quote[] {
-  const $ = cheerio.load(html);
-  const out: Quote[] = [];
-  $("table tbody tr").each((_, tr) => {
-    const cells = $(tr)
-      .find("td")
-      .map((__, td) => $(td).text().trim())
-      .get();
-    if (cells.length < 5) return;
-    const symbol = cells[0].toUpperCase();
-    if (!INSTRUMENT_MAP.has(symbol)) return;
-    // colonnes usuelles : Symbole | Nom | Volume | Cours veille | Ouverture | Clôture | Variation
-    const volume = toNumber(cells[2]);
-    const price = toNumber(cells[5] ?? cells[cells.length - 2]);
-    if (!Number.isFinite(price) || price <= 0) return;
-    out.push({ symbol, price, volume: Number.isFinite(volume) ? volume : 0, ts, source: "live" });
-  });
-  return out;
+  return parseBrvmQuotes(html).filter((r) => INSTRUMENT_MAP.has(r.symbol) && r.close != null && r.close > 0).map((r) => ({ symbol: r.symbol, price: r.close!, volume: r.volume ?? 0, ts, source: "live" as const }));
 }
 
+/** Cotations de A à Z de Sika Finance (symbole lu dans le lien de chaque ligne), vérifiée sur la page réelle. */
 function parseSikaTable(html: string, ts: number): Quote[] {
-  const $ = cheerio.load(html);
-  const out: Quote[] = [];
-  $("table tr").each((_, tr) => {
-    const cells = $(tr)
-      .find("td")
-      .map((__, td) => $(td).text().trim())
-      .get();
-    if (cells.length < 4) return;
-    const symbol = cells[0].toUpperCase();
-    if (!INSTRUMENT_MAP.has(symbol)) return;
-    const price = toNumber(cells[1]);
-    const volume = toNumber(cells[3]);
-    if (!Number.isFinite(price) || price <= 0) return;
-    out.push({ symbol, price, volume: Number.isFinite(volume) ? volume : 0, ts, source: "live" });
-  });
-  return out;
+  return parseSikaQuoteList(html).filter((r) => INSTRUMENT_MAP.has(r.symbol) && r.last != null && r.last > 0).map((r) => ({ symbol: r.symbol, price: r.last!, volume: r.volume ?? 0, ts, source: "live" as const }));
 }
 
 export class LiveBrvmProvider implements MarketDataProvider {
@@ -90,13 +58,7 @@ export class LiveBrvmProvider implements MarketDataProvider {
     let lastErr: unknown = null;
     for (const src of SOURCES) {
       try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 10000);
-        const res = await this.fetchImpl(src.url, {
-          signal: ctrl.signal,
-          headers: { "user-agent": "CrackenMarket/0.1 (+market-data-poller)" },
-        });
-        clearTimeout(t);
+        const res = await politeFetch(src.url, { fetchImpl: this.fetchImpl, timeoutMs: 20000 });
         if (!res.ok) throw new Error(`${src.name} HTTP ${res.status}`);
         const quotes = src.parse(await res.text(), ts);
         if (quotes.length > 0) return quotes;

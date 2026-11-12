@@ -22,6 +22,7 @@ import type { BocService } from "../services/boc.js";
 import type { EvaluationService } from "../services/evaluation.js";
 import type { FundamentalsService } from "../services/fundamentals.js";
 import type { PanelService } from "../services/panel.js";
+import type { HistoryService } from "../services/history.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -53,6 +54,7 @@ export interface Services {
   evaluation: EvaluationService;
   fundamentals: FundamentalsService;
   panel: PanelService;
+  history: HistoryService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -426,6 +428,40 @@ export function buildRouter(s: Services): Router {
     s.corporate.removeDividend(Number(req.params.id));
     res.json({ ok: true });
   });
+  // ---------- Collecteurs : historique réel, dividendes Sika, état d'ensemble ----------
+  r.get("/market/history-status", (_req, res) => res.json(s.history.status()));
+  r.post(
+    "/market/history-status/refresh",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAdmin(req)) throw Object.assign(new Error("Réservé à l'administrateur"), { status: 403 });
+      const body = z.object({ symbols: z.array(z.string()).max(60).optional() }).parse(req.body ?? {});
+      res.json({ lastRun: await s.history.refresh(body.symbols?.map((x) => x.toUpperCase())), status: s.history.status() });
+    }),
+  );
+  r.post(
+    "/market/corporate/dividends/sika",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      res.json(await s.corporate.refreshFromSika());
+    }),
+  );
+  r.get("/market/collectors", (_req, res) => {
+    res.json({
+      quotes: s.market.status(),
+      history: (() => { const h = s.history.status(); return { source: h.source, realCoverage: h.realCoverage, lastRun: h.lastRun, lastCapRun: h.lastCapRun }; })(),
+      bulletin: s.boc.status(),
+      bonds: s.bonds.status(),
+      news: s.news.status(),
+      documents: s.documents.status(),
+      dividends: { ...s.corporate.status(), lastSikaRun: s.corporate.lastSikaRun },
+      fundamentals: s.fundamentals.status(),
+      panel: (() => { const p = s.panel.summary(); return { asOf: p.asOf, computedAt: p.computedAt, symbols: p.symbols }; })(),
+      policy: { brvm: "délai de 10 s entre deux requêtes (robots.txt)", sika: "documents /docs non téléchargés (robots.txt), délai 2 s", richbourse: "extraction automatique refusée par le site : exports CSV à importer à la main" },
+    });
+  });
+
   // ---------- Fondamentaux et modèle de panel ----------
   r.get("/market/fundamentals", (_req, res) => res.json({ items: s.fundamentals.all(), status: s.fundamentals.status() }));
   r.get("/market/fundamentals/:symbol", (req, res) => {

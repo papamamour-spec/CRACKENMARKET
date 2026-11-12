@@ -489,6 +489,12 @@ function migrate(d: DB): void {
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
   addColumn(d, "forecast_log", "panel_pct", "REAL");
+  addColumn(d, "candles", "source", "TEXT NOT NULL DEFAULT 'synthetic'"); // synthetic | live | official | sika
+  addColumn(d, "daily_stats", "per", "REAL");
+  addColumn(d, "daily_stats", "yield_pct", "REAL");
+  addColumn(d, "daily_stats", "last_dividend", "REAL");
+  addColumn(d, "daily_stats", "last_dividend_date", "INTEGER");
+  addColumn(d, "daily_stats", "ytd_pct", "REAL");
   addColumn(d, "bonds", "source", "TEXT NOT NULL DEFAULT 'seed'");
   addColumn(d, "bonds", "dates_estimated", "INTEGER NOT NULL DEFAULT 0");
   addColumn(d, "bonds", "quoted_pct", "REAL");

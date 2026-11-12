@@ -1,0 +1,163 @@
+mercredi 11 novembre 2026 ; N° 215
+BRVM COMPOSITE ; 517,17 ; BRVM 30 ; 250,13 ; BRVM PRESTIGE ; 192,47
+Variation Jour ; 0,85 % ; Variation Jour ; 1,07 % ; Variation Jour ; 0,45 %
+Variation annuelle ; Variation annuelle
+Variation annuelle ; 49,58 % ; 50,46 % ; 33,43 %
+Actions ; Niveau ; Evol. Jour ; Obligations ; Niveau ; Evol. Jour
+Capitalisation boursière (FCFA)(Actions & Droits) ; 20 280 862 168 685 ; 0,85 % ; Capitalisation boursière (FCFA) ; 13 429 835 223 853 ; -0,01 %
+Volume échangé (Actions & Droits) ; 858 599 ; -25,46 % ; Volume échangé ; 6 382 ; -97,88 %
+Valeur transigée (FCFA) (Actions & Droits) ; Valeur transigée (FCFA)
+1 203 694 075 ; -38,57 % ; 63 749 371 ; -97,80 %
+Code ; Cours du jour ; Séance de cotation ; Variation de ; Dernier dividende ; PER
+Sect. ; Cours ; Variation ; Cours
+Symbole ; Titre ; l'année ; payé ; Rdt. Net
+Act.
+Précédent ; jour ; Référence
+(*) ; Ouv. ; Clôt. ; Volume ; Valeur ; précédente ; Montant net ; Date
+COMPARTIMENT PRESTIGE ; 192,47 ; points ; 0,45 %
+NTLC ; NESTLE CI ; 13 000 ; 13 000 ; 13 130 ; 1,00 % ; 863 ; 11 004 755 ; 13 130 ; 23,29 % ; 369,6 ; 7-sept.-26 ; 2,81 % ; 15,73
+CB
+ONTBF ; ONATEL BF ; 2 995 ; 2 950 ; 2 900 ; -3,17 % ; 3 849 ; 11 568 885 ; 2 900 ; 16,70 % ; 145,32 ; 15-juin-26 ; 5,01 % ; 13,58
+TEL
+SNTS ; SONATEL SN ; 4 000 ; 4 000 ; 4 190 ; 4,75 % ; 85 624 ; 346 674 225 ; 4 190 ; 60,41 % ; 174 ; 26-mai-26 ; 4,15 % ; 10,13
+TEL
+COMPARTIMENT PRINCIPAL ; 361,64 ; points ; 0,33 %
+SICC ; SICOR CI ; 8 400 ; SP ; SP ; 0,00 % ; 8 400 ; 154,55 % ; 1919 25-sept.-00
+CB
+UNLC ; UNILEVER CI ; 47 000 ; NC ; NC ; 0,00 % ; 47 000 ; 37,33 % ; 1233 ; 9-juil.-12 ; 674,05
+CB
+BBGC ; BRIDGE BANK GROUP CI ; 9 480 ; 9 480 ; 9 465 ; -0,16 % ; 5 793 ; 54 727 820 ; 9 465 ; 17,40
+FIN
+BOAB ; BANK OF AFRICA BN ; 9 200 ; 9 200 ; 9 410 ; 2,28 % ; 6 593 ; 61 929 315 ; 9 410 ; 60,85 % ; 585 ; 26-mai-26 ; 6,22 % ; 18,98
+FIN
+BOAN ; BANK OF AFRICA NG ; 4 990 ; 4 950 ; 4 920 ; -1,40 % ; 487 ; 2 397 080 ; 4 920 ; 88,51 % ; 209,25 ; 3-juin-25 ; 4,25 % 250,05
+FIN
+ETIT ; ECOBANK TRANS. INCORP. ; 60 ; 59 ; 60 ; 0,00 % ; 658 363 ; 38 453 915 ; 60 ; 160,87 % ; ,92 ; 30-juin-26 ; 1,53 % ; 3,14
+FIN ; TG
+SEMC ; SONOCO METAL ; 1 495 ; SP ; SP ; 0,00 % ; 1 495 ; 113,57 % ; 14 ; 28-déc.-21 ; 0,94 % ; 37,21
+IND ; PACKAGING SIEM S.
+SIVC ; ERIUM CI (Ex AIR LIQUIDE ; 1 700 ; 1 700 ; 1 750 ; 2,94 % ; 278 ; 481 600 ; 1 750 ; 10,76 % ; 63 29-sept.-17 ; 85,25
+IND ; CI)
+STAC ; SETAO CI ; 2 000 ; 2 000 ; 2 040 ; 2,00 % ; 7 605 ; 14 673 920 ; 2 040 ; 53,96 % ; 66,15 ; 18-juil.-22 ; 3,24 %
+IND
+CIEC ; CIE CI ; 4 950 ; 5 050 ; 4 900 ; -1,01 % ; 4 824 ; 23 945 905 ; 4 900 ; 107,63 % ; 205,92 ; 28-juil.-26 ; 4,20 % ; 20,90
+SPU
+LIBEL
+LE
+GRO
+UPE
+TOTAL
+TOTAL - MARCHE DES ACTIONS
+858 599 ; 1 203 694 075
+Secteurs d'activités (*) :
+TEL : BRVM-TELECOMMUNICATIONS ; FIN : BRVM - SERVICES FINANCIERS ; CD : BRVM - CONSOMMATION DISCRETIONNAIRE ; CB : BRVM - CONSOMMATION DE BASE ; IND : BRVM - INDUSTRIELS ; ENE : BRVM - ENERGIE ; SPU : BRVM - SERVICES PUBLICS
+Cours du jour ; Séance de cotation ; Variation ; Periode de négociation
+Cours ; Variation ; Cours
+Symbole ; Titre ; depuis ; Parité
+Précédent ; jour ; Référence
+Ouv. ; Clôt. ; Volume ; Valeur ; l'origine ; Début ; fin
+TOTAL
+TOTAL - MARCHE DES DROITS
+Légende:
+(d) Ex-dividende (V) Variation par rapport au cours de référence
+Cours du jour : Ouv. : Ouverture Clôt. : Clôture ; Moy. : Moyen
+Mentions : NC : Non Coté ; Ex-c : Ex-coupon Ex-d : Ex-droit ; SP : Suspendu ; Val-T : Valeur Théorique
+PER = Cours / BNPA selon les données disponibles ; Rdt. Net: Rendement net (DNPA / Cours)
+Comp. : 1 - Premier Compartiment ; 2 - Second Compartiment ; 3 - Compartiment de croissance
+Ratio de liquidité = Titres échangés / Volume des ordres de vente
+: Progression de l'indice sectoriel ; : Stabilité de l'indice sectoriel ; : Recul de l'indice sectoriel
+4
+mercredi 11 novembre 2026
+1. OBLIGATIONS CLASSIQUES
+1. OBLIGATIONS CLASSIQUES
+Valeur ; Cours ; Cours du ; Cours ; Séance de cotation ; Coupon ; Coupon d'intérêt
+Symbole ; Titre ; Type Amort
+nominale ; Précédent ; jour ; Référence ; Volume ; Valeur ; couru ; Période ; Montant net ; Eché.
+OBLIGATIONS SOUVERAINES
+EOM.O10 ; ETAT DU MALI 6,20 % 2022-2029 ; 10 000 ; 10 000 ; NC ; 10 000 ; 572,44 ; A ; 620,00 ; 9-déc.-26 ; ACD
+EOM.O11 ; ETAT DU MALI 6,40 % 2023-2030 ; 10 000 ; 10 000 ; NC ; 10 000 ; 382,25 ; A ; 640,00 ; 7-avr.-27 ; ACD
+EOS.O24 ; ETAT DU SENEGAL 6,75% 2025-2032 ; 10 000 ; 8 386 ; NC ; 8 386 ; 46,23 ; S ; 336,58 ; 17-avr.-27 ; ACD
+TPBF.O21 ; ETAT DU BURKINA 6,50% 2024-2029 ; 10 000 ; 10 000 ; 10 000 ; 10 000 ; 33 ; 330 000 ; 294,97 ; S ; 325,00 ; 28-nov.-26 ; ACD
+TPCI.O77 ; TPCI (TAUX DE BASE + SPREAD) % ; 10 000 ; 10 000 ; SP ; 10 000 ; 144,25 ; T ; 144,25 ; 11-nov.-26 ; ACD
+SNTS.O2 ; SONATEL 6,50% 2020-2027 ; 2 000 ; 2 000 ; NC ; 2 000 ; 39,51 ; S ; 61,60 ; 16-janv.-27 ; ACD
+2. OBLIGATIONS VERTES, SOCIALEMENT RESPONSABLES ET DURABLES (GSS)
+Valeur ; Cours ; Cours du ; Cours ; Séance de cotation ; Coupon ; Coupon d'intérêt
+Symbole ; Titre ; Type Amort
+nominale ; Précédent ; jour ; Référence ; Volume ; Valeur ; couru ; Période ; Montant net ; Eché.
+3. FONDS COMMUNS DE TITRISATION DE CREANCES (FCTC)
+Valeur ; Cours ; Cours du ; Cours ; Séance de cotation ; Coupon ; Coupon d'intérêt
+Symbole ; Titre ; Type Amort
+nominale ; Précédent ; jour ; Référence ; Volume ; Valeur ; couru ; Période ; Montant net ; Eché.
+FSNTS.O1 ; FCTC SONATEL C-1 6,40 % 2023-2 ; 10 000 ; 10 750 ; NC ; 10 750 ; 188,00 ; S ; 300,80 ; 19-janv.-27 ; AC
+4. SUKUK ET TITRES ASSIMILES
+Valeur ; Cours ; Cours du ; Cours ; Séance de cotation ; Coupon ; Coupon d'intérêt
+Symbole ; Titre ; Type Amort
+nominale ; Précédent ; jour ; Référence ; Volume ; Valeur ; couru ; Période ; Montant net ; Eché.
+5. OBLIGATIONS CONVERTIBLES EN ACTIONS
+Valeur ; Cours ; Cours du ; Cours ; Séance de cotation ; Coupon ; Coupon d'intérêt
+Symbole ; Titre ; Type Amort
+nominale ; Précédent ; jour ; Référence ; Volume ; Valeur ; couru ; Période ; Montant net ; Eché.
+(##) (*) Ex-Coupon couru (##)Cours de référence amorti / Coupon couru Ex-c (#)Ex-marge de profits
+Cours du jour: ; Ouv. : Ouverture ; Clôt. : Clôture ; Moy. : Moyen
+Type Amort : Type d'Amortissement ; IF : In Fine ; AC : Amortissement Constant ; AD : Amortissement Dégressif ; ACD : Amortissement Constant Différé
+OPERATIONS EN COURS
+Emetteur ; Opération
+SWAMI AGRI SAU ; Première cotation - GREEN BOND SWAMI AGRI 7,00 % 2026-2031 (SWAS.O1) - Première cotation le 17 novembre 2026
+AVIS
+Entité ; N° ; Nature ; Objet
+AMF-UMOA ; Décision N°PAMF- ; Décision AMF-UMOA ; Homologation des tarifs de la SGO INVICTUS ASSET MANAGEMENT (IAM)
+UMOA/2026/341
+COMMUNIQUES
+Emetteur ; N° ; Nature ; Objet
+$),1+$% ; 20261111 ; Rapport d'activités du 1er semestre ; Attestation des Commissaires Aux Comptes sur le rapport d'activités - 1er semestre
+2026 - AFINHAB
+10
+mercredi 11 novembre 2026
+MARCHE DES ACTIONS
+Quantité ; Cours ; Quantité
+Symbole ; Titre ; résiduelle à ; Achat / Vente ; résiduelle à la ; Cours de Référence
+l'achat ; vente
+ABJC ; SERVAIR ABIDJAN CI ; 115 ; 3,300 ; / ; 3,390 ; 99 ; 3 300
+BBGC ; BRIDGE BANK GROUP CI ; 10 ; 9,360 ; / ; 9,465 ; 80 ; 9 465
+BICB ; BIIC BN ; 100 ; 8,060 ; / ; 8,090 ; 214 ; 8 090
+BICC ; BICI CI ; 21 ; 31,650 ; 31,700 ; 2 ; 31 700
+/
+BNBC ; BERNABE CI ; 110 ; 1,775 ; / ; 1,795 ; 769 ; 1 795
+BOAB ; BANK OF AFRICA BN ; 3 ; 9,410 ; 9,475 ; 159 ; 9 410
+/
+BOABF ; BANK OF AFRICA BF ; 101 ; 7,710 ; / ; 7,900 ; 28 ; 7 900
+ETIT ; ECOBANK TRANS. INCORP. TG ; 9 303 ; 59 ; / ; 60 ; 298 700 ; 60
+SEMC ; SONOCO METAL PACKAGING SIEM S. ; / ; 1 495
+SICC ; SICOR CI ; / ; 8 400
+SIVC ; ERIUM CI (Ex AIR LIQUIDE CI) ; 304 ; 1,720 ; 1,795 ; 438 ; 1 750
+SNTS ; SONATEL SN ; 1 ; 4,185 ; 4,190 ; 1 997 ; 4 190
+UNLC ; UNILEVER CI ; 3 ; 47,000 ; 47,500 ; 3 ; 47 000
+MARCHE DES DROITS
+Quantité ; Cours ; Quantité
+Symbole ; Titre ; résiduelle à ; Achat / Vente ; résiduelle à la ; Cours de Référence
+l'achat ; vente
+12
+mercredi 11 novembre 2026
+MARCHE DES OBLIGATIONS
+Symbole ; Titre ; Quantité ; Cours ; Quantité ; Cours de Référence
+résiduelle à ; Achat / Vente ; résiduelle à la
+l'achat ; vente
+FBOAD.O1 ; FCTC BOAD DOLI-P 6,10% 2023-2030 ; / ; 3,700 ; 100 ; 3 700
+FBOAD.O2 ; FCTC BOAD DOLI-P 9,50% 2024-2029 ; / ; 6 356
+FCAGS.O1 ; FCTC CROISSANCE AGRICOLE 8% 2025-2032 ; / ; 8 571
+FCAGS.O2 ; FCTC CROISSANCE AGRICOLE 9% 2025-2032 ; 12 ; 8,571 ; / ; 9,213.83 ; 100 ; 9 214
+FCAS.O1 ; FCTC CROISSANCE ATLANTIQUE 6,20% 2024-2029 ; 7 ; 5,877.99 ; / ; 5 878
+FEPTC.O1 ; FCTC EPT 7 % 2023–2030 ; / ; 7 083
+FTIMC.O1 ; FCTC TEYLIOM IMMO 7 % 2021-2028 ; 303 ; 2,916.66 ; / ; 2 917
+FORBT.O1 ; FCTC ORABANK 7 % 2021-2026 ; / ; 739
+FSNBBF.O1 ; FCTC SONABHY 8,10 % 2025-2031 ; 8 ; 9,900 ; / ; 10,000 ; 427 ; 10 000
+FSNLC.O1 ; FCTC SENELEC SENIOR 8,15 % 2025-2030 ; / ; 9 975
+FSNLC.O2 ; FCTC SENELEC MEZZANINE 10 % 2025-2030 ; / ; 10,800 ; 10 ; 10 978
+FSNTS.O1 ; FCTC SONATEL C-1 6,40 % 2023-2 ; / ; 10 750
+FSNTS.O2 ; FCTC SONATEL C-2 6,60 % 2023-2 ; / ; 9 950
+FNSBB.O2 ; FCTC KEUR SAMBA NSIA BANQUE 9% 2025-2030 ; 20 ; 7,600 ; / ; 7 600
+FNSBC.O2 ; FCTC KEUR SAMBA NSIA BANQUE CI 7% 2025-2030 ; / ; 7,142.86 ; 32 ; 7 143
+FNSBC.O3 ; FCTC NSIA BANQUE CI 7,50% 2025-2030 ; / ; 8 750
+FNSBC.O4 ; FCTC ZAKA RMBS NSIA BANQUE CI 7,00% 2025-2036 ; / ; 9 130
+FNSBC.O5 ; FCTC ZAKA RMBS NSIA BANQUE CI 9,00% 2025-2036 ; 1 ; 9,130 ; / ; 9 130
+FORBC.O1 ; FCTC KEUR SAMBA ORABANK CI 7% 2025-2030 ; / ; 7 143

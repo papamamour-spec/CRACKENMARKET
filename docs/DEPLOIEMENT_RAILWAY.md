@@ -38,6 +38,9 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `ADMIN_PASSWORD` | mot de passe (8 caractères minimum) | ne jamais l'écrire dans le dépôt ; changer la variable réinitialise le mot de passe |
    | `FORECAST_BACKFILL_SESSIONS` | `120` | profondeur de l'amorçage de l'apprentissage continu (prévisions rejouées sur l'historique au premier démarrage ; `0` pour désactiver) |
    | `DOC_SOURCES_JSON` | (facultatif) `[{"name":"…","url":"https://…/{symbol}","perCompany":true}]` | sources supplémentaires de documents de sociétés |
+   | `BOC_AUTO` | `1` | collecte automatique des bulletins officiels quotidiens sur brvm.org (`0` pour désactiver) |
+   | `HISTORY_COLLECT` | `1` | collecte quotidienne de l'historique réel des cours et des capitalisations sur Sika Finance (`0` pour désactiver) |
+   | `DOC_COLLECT` | `1` | collecte des rapports, annonces et communiqués des sociétés (`0` pour désactiver) |
    | `BOC_SOURCES` | (facultatif) `https://…/boc_{YYYYMMDD}.pdf,https://…/cote?date={DD-MM-YYYY}` | modèles d'URL du bulletin officiel de la cote (PDF ou HTML), collectés toutes les heures pour les dernières séances closes ; sans cette variable, le bulletin s'importe par collage dans « Données officielles » |
    | `BOC_COLUMNS` | (facultatif) `volume,ref,open,close,changePct,trades` | ordre des colonnes d'un bulletin sans ligne d'en-tête reconnue (champs : ref, open, high, low, close, changePct, volume, value, trades, bid, bidQty, ask, askQty, skip) |
    | `BOND_SOURCES` | `https://www.brvm.org/fr/cours-obligations/0` | page(s) de la cote obligataire collectée(s) toutes les 30 minutes (séparées par des virgules) |

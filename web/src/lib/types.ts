@@ -650,8 +650,21 @@ export interface DividendView { id: number; symbol: string; name: string; fiscal
 export interface DividendInfo { last: DividendView | null; yieldPct: number | null; next: { exDate: number; amount: number; fiscalYear: number; status: DividendStatus } | null; years: number }
 export interface CorporateStatus { actions: number; suspected: number; dividends: number; symbolsWithDividends: number; version: number }
 export interface CorporateSymbolResponse { symbol: string; actions: CorporateActionView[]; dividends: DividendView[]; info: DividendInfo; adjustments: AdjustmentStep[] }
-export interface DailyStat { symbol: string; ts: number; ref: number | null; open: number | null; high: number | null; low: number | null; close: number | null; changePct: number | null; volume: number | null; value: number | null; trades: number | null; bid: number | null; bidQty: number | null; ask: number | null; askQty: number | null; imbalance: number | null; reserved: "up" | "down" | null; suspended: boolean; source: string; fetchedAt: number }
-export interface BocStatus { sources: string[]; columns: string[] | null; sessions: number; lastSession: number | null; symbolsLastSession: number; lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null } | null; pdfSupport: boolean }
+export interface DailyStat { symbol: string; ts: number; ref: number | null; open: number | null; high: number | null; low: number | null; close: number | null; changePct: number | null; volume: number | null; value: number | null; trades: number | null; bid: number | null; bidQty: number | null; ask: number | null; askQty: number | null; imbalance: number | null; reserved: "up" | "down" | null; suspended: boolean; per: number | null; yieldPct: number | null; lastDividend: number | null; lastDividendDate: number | null; ytdPct: number | null; source: string; fetchedAt: number }
+export interface CollectorsStatus {
+  quotes: MarketStatus;
+  history: { source: string; realCoverage: number; lastRun: { at: number; ok: number; failed: string[]; inserted: number; rescaled: number; removed: number; durationMs: number } | null; lastCapRun: { at: number; updated: number; failed: string[] } | null };
+  bulletin: BocStatus;
+  bonds: { lastRun: { at: number; ok: boolean; rows: number; inserted: number; updated: number; error: string | null } | null; quoted: number; total: number };
+  news: { sources: string[]; items: number; lastRun: { at: number; ok: string[]; failed: string[] } | null; details: { name: string; url: string; ok: boolean | null; parsed: number; inserted: number; error: string | null; lastAt: number | null }[] };
+  documents: { sources: { name: string; url: string; perCompany: boolean }[]; documents: number; companies: number; lastRun: { at: number; ok: string[]; failed: string[]; inserted: number } | null };
+  dividends: CorporateStatus & { lastSikaRun: { at: number; history: number; upcoming: number } | null };
+  fundamentals: { records: number; companies: number; auto: number; lastScan: { at: number; inserted: number; fetched: number; failed: number } | null };
+  panel: { asOf: number | null; computedAt: number | null; symbols: number };
+  policy: { brvm: string; sika: string; richbourse: string };
+}
+export interface HistoryStatus { source: string; suffixes: number; lastRun: CollectorsStatus["history"]["lastRun"]; lastCapRun: CollectorsStatus["history"]["lastCapRun"]; symbols: { symbol: string; candles: number; realSince: number | null; realCandles: number }[]; realCoverage: number }
+export interface BocStatus { sources: string[]; columns: string[] | null; sessions: number; lastSession: number | null; symbolsLastSession: number; lastRun: { at: number; ok: boolean; session: number | null; rows: number; applied: number; source: string | null; error: string | null; bonds?: number; dividends?: number; notices?: number } | null; pdfSupport: boolean; auto: boolean }
 export interface BocSymbolResponse { symbol: string; latest: DailyStat | null; activity: { sessions: number; avgTrades: number | null; reservedUp: number; reservedDown: number; suspendedDays: number; lastImbalance: number | null }; stats: DailyStat[] }
 export const ACTION_KIND_LABEL: Record<string, string> = { split: "Fractionnement", reverse_split: "Regroupement", bonus: "Attribution gratuite", dividend: "Dividende" };
 

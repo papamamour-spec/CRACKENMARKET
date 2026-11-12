@@ -29,6 +29,7 @@ import { BocService } from "./services/boc.js";
 import { EvaluationService } from "./services/evaluation.js";
 import { FundamentalsService } from "./services/fundamentals.js";
 import { PanelService } from "./services/panel.js";
+import { HistoryService } from "./services/history.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -65,7 +66,9 @@ async function main(): Promise<void> {
   corporate.attach(news, documents);
   advisor.attachCorporate(corporate);
   const boc = new BocService(db, market);
+  boc.attach(bonds, corporate, news);
   boc.start();
+  const history = new HistoryService(db, market);
   forecasts.attachOfficial(corporate, boc);
   const quality = new QualityService(db, market, advisor);
   quality.attach(documents, news);
@@ -78,6 +81,9 @@ async function main(): Promise<void> {
   learning.start();
   const fundamentals = new FundamentalsService(db, market);
   fundamentals.attach(documents, news, quality);
+  fundamentals.attachBoc(boc);
+  history.attachQuality(quality);
+  history.start();
   const panel = new PanelService(market);
   panel.attach(corporate, fundamentals);
   forecasts.attachPanel(panel);
@@ -85,7 +91,7 @@ async function main(): Promise<void> {
   advisory.attachQuality(quality);
   const evaluation = new EvaluationService(db, market);
   evaluation.attachExtras(panel.extrasAt);
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel };
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();
