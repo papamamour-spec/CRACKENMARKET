@@ -5,7 +5,7 @@ import { ScoreBar } from "../components/ScoreBar";
 import { useMarket } from "../hooks/useMarket";
 import { api } from "../lib/api";
 import { fmtNum, fmtPct, signClass } from "../lib/format";
-import type { ScreenerRow } from "../lib/types";
+import { QUALITY_BAND_CLASS, type QualityResult, type ScreenerRow } from "../lib/types";
 
 export function MarketPage() {
   const { quotes } = useMarket();
@@ -13,10 +13,12 @@ export function MarketPage() {
   const [sector, setSector] = useState("Tous");
   const [search, setSearch] = useState("");
   const [screener, setScreener] = useState<ScreenerRow[]>([]);
+  const [quality, setQuality] = useState<Map<string, QualityResult>>(new Map());
   const [sortKey, setSortKey] = useState<keyof ScreenerRow>("composite");
 
   useEffect(() => {
     const load = () => api<ScreenerRow[]>("/market/screener").then(setScreener).catch(() => {});
+    api<{ items: QualityResult[] }>("/market/quality").then((r) => setQuality(new Map(r.items.map((q) => [q.symbol, q])))).catch(() => {});
     load();
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
@@ -59,6 +61,7 @@ export function MarketPage() {
                   {{ composite: "Score", trend: "Tendance", momentum: "Momentum", rsi: "RSI", volatility: "Volat.", perf1m: "1 mois", perf1y: "1 an", dividendYield: "Rdt div." }[k]}
                 </th>
               ))}
+              <th>Qualité</th>
               <th className="left">Signaux</th>
             </tr>
           </thead>
@@ -76,6 +79,7 @@ export function MarketPage() {
                 <td className={`mono ${signClass(r.perf1m)}`}>{fmtPct(r.perf1m, 1)}</td>
                 <td className={`mono ${signClass(r.perf1y)}`}>{fmtPct(r.perf1y, 1)}</td>
                 <td className="mono">{r.dividendYield.toFixed(1)} %</td>
+                <td>{quality.get(r.symbol) ? <span className={`badge ${QUALITY_BAND_CLASS[quality.get(r.symbol)!.band]}`} title={quality.get(r.symbol)!.headline}>{quality.get(r.symbol)!.band} {quality.get(r.symbol)!.score}</span> : "—"}</td>
                 <td className="left muted" style={{ whiteSpace: "normal", maxWidth: 320, fontSize: 12 }}>{r.signals.slice(0, 2).join(" · ")}</td>
               </tr>
             ))}

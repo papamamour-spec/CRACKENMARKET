@@ -12,6 +12,7 @@ import type { PortfolioService } from "./portfolio.js";
 import type { PeriodPerf } from "./market.js";
 import { analyzeBond } from "../engine/bonds.js";
 import { targetBondSharePct, type BondAllocationLine, type BondService } from "./bonds.js";
+import type { QualityService } from "./quality.js";
 
 export interface HeldPosition {
   symbol: string;
@@ -48,6 +49,7 @@ export interface AnalysisLine {
   perf: PeriodPerf | null;
   recommendation: { action: Recommendation["action"]; score: number; confidence: number; fitScore: number; targetPrice: number; stopLoss: number; rationale: string[]; warnings: string[] };
   forecast: { expected1M: number; probUp1M: number; expected3M: number; probUp3M: number; p5: number; p95: number; liveHitRate: number | null } | null;
+  quality: { score: number; band: string; confidence: number; headline: string } | null;
   action: { kind: LineAction; quantity: number; amount: number; reasons: string[] };
 }
 
@@ -117,6 +119,7 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 export class HoldingsService {
   private forecasts: ForecastService | null = null;
   private bonds: BondService | null = null;
+  private quality: QualityService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -131,6 +134,10 @@ export class HoldingsService {
 
   attachBonds(b: BondService): void {
     this.bonds = b;
+  }
+
+  attachQuality(q: QualityService): void {
+    this.quality = q;
   }
 
   private isBond(symbol: string): boolean {
@@ -374,6 +381,7 @@ export class HoldingsService {
         perf: qSnap?.perf ?? null,
         recommendation: { action: rec.action, score: rec.score, confidence: rec.confidence, fitScore: rec.fitScore, targetPrice: rec.targetPrice, stopLoss: rec.stopLoss, rationale: rec.rationale.slice(0, 3), warnings: rec.warnings.slice(0, 2) },
         forecast: f,
+        quality: (() => { try { const q = this.quality?.assess(p.symbol); return q ? { score: q.score, band: q.band, confidence: q.confidence, headline: q.headline } : null; } catch { return null; } })(),
         action: { kind, quantity: qty, amount: r0(qty * p.currentPrice), reasons: reasons.slice(0, 3) },
       };
     });
@@ -615,6 +623,7 @@ export class HoldingsService {
     for (const l of bondLines) issuerExposure.set(l.issuer, (issuerExposure.get(l.issuer) ?? 0) + l.weightPct);
     for (const [issuer, w] of issuerExposure) if (w > 30) warnings.push(`${issuer} représente ${r0(w)} % du portefeuille : concentration sur un seul émetteur obligataire.`);
     if (diagnostic.riskScore > 65 && tol < 3) warnings.push("Le risque du portefeuille dépasse votre tolérance déclarée.");
+    for (const l of lines) if (l.quality?.band === "RISQUÉ") warnings.push(`${l.symbol} : score de qualité RISQUÉ (${l.quality.headline}).`);
     if (var95 * total > 0) warnings.push(`Dans 5 % des cas, la perte sur un mois pourrait dépasser ${r0(var95 * total).toLocaleString("fr-FR")} FCFA (VaR 95 %).`);
     warnings.push(...diagnostic.suggestions);
     if (unknownSymbols.length) warnings.push(`Valeurs non reconnues, ignorées : ${unknownSymbols.join(", ")}.`);

@@ -573,6 +573,7 @@ export interface AnalysisLine {
   perf: Record<string, number | null> | null;
   recommendation: { action: string; score: number; confidence: number; fitScore: number; targetPrice: number; stopLoss: number; rationale: string[]; warnings: string[] };
   forecast: { expected1M: number; probUp1M: number; expected3M: number; probUp3M: number; p5: number; p95: number; liveHitRate: number | null } | null;
+  quality: { score: number; band: string; confidence: number; headline: string } | null;
   action: { kind: LineAction; quantity: number; amount: number; reasons: string[] };
 }
 export interface PortfolioAnalysis {
@@ -620,3 +621,14 @@ export const AMORT_LABEL: Record<string, string> = { in_fine: "In fine", constan
 export interface CompanyDocument { id: number; symbol: string; title: string; kind: string; period: string | null; url: string; published_at: number | null; source: string; summary: string | null; fetched_at: number }
 export interface DocumentsResponse { items: CompanyDocument[]; status: { sources: { name: string; url: string; perCompany: boolean }[]; documents: number; companies: number; bySymbol: { symbol: string; n: number; last: number | null }[]; lastRun: { at: number; ok: string[]; failed: string[]; inserted: number } | null } }
 export interface DocumentHistory { symbol: string; name: string; total: number; years: { year: string; documents: CompanyDocument[] }[]; kinds: Record<string, number>; latestResults: CompanyDocument | null; latestAnnualReport: CompanyDocument | null }
+
+// ---- Score de qualité, profils d'émetteurs, radar ----
+export type QualityBand = "SOLIDE" | "CORRECT" | "FRAGILE" | "RISQUÉ";
+export interface QualityPart { key: string; label: string; points: number; max: number; verified: boolean; value: string; text: string }
+export interface QualityResult { symbol: string; score: number; band: QualityBand; confidence: number; parts: QualityPart[]; flags: { hard: boolean; text: string }[]; unverified: string[]; headline: string; rulesVersion: string; computedAt: number }
+export interface CompanyProfile { freeFloatPct: number | null; mainHolderPct: number | null; mainHolderName: string | null; statePct: number | null; sharesOutstanding: number | null; payoutRatioPct: number | null; dividendYears: number | null; suspended: boolean; suspendedReason: string | null; note: string | null; updatedAt: number | null }
+export const QUALITY_BAND_CLASS: Record<QualityBand, string> = { SOLIDE: "strong-buy", CORRECT: "buy", FRAGILE: "reduce", "RISQUÉ": "sell" };
+export type RadarKind = "introduction" | "emission_obligataire" | "offre_publique" | "dividende" | "resultats" | "assemblee" | "suspension" | "nouvelle_obligation" | "augmentation_capital" | "calendrier";
+export const RADAR_KIND_LABEL: Record<RadarKind, string> = { introduction: "Introduction en bourse", emission_obligataire: "Émission obligataire", offre_publique: "Offre publique", dividende: "Dividende", resultats: "Résultats", assemblee: "Assemblée générale", suspension: "Suspension", nouvelle_obligation: "Nouvelle obligation cotée", augmentation_capital: "Augmentation de capital", calendrier: "Échéance à venir" };
+export interface RadarEvent { id: number; kind: RadarKind; symbol: string | null; title: string; detail: string | null; url: string | null; source: string; date: number; created_at: number }
+export interface RadarResponse { items: RadarEvent[]; status: { byKind: { kind: RadarKind; n: number }[]; recent48h: number; lastScan: { at: number; inserted: number } | null } }

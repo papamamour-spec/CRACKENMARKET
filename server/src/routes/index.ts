@@ -16,6 +16,8 @@ import type { LearningService } from "../services/learning.js";
 import type { HoldingsService } from "../services/holdings.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
+import type { QualityService } from "../services/quality.js";
+import type { RadarService, RadarKind } from "../services/radar.js";
 import type { AdvisorService } from "../services/advisor.js";
 import type { AlertService } from "../services/alerts.js";
 import type { MarketService } from "../services/market.js";
@@ -40,6 +42,8 @@ export interface Services {
   holdings: HoldingsService;
   bonds: BondService;
   documents: DocumentService;
+  quality: QualityService;
+  radar: RadarService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -170,6 +174,40 @@ export function buildRouter(s: Services): Router {
   r.get("/market/status", (_req, res) => res.json(s.market.status()));
   r.get("/market/indices", (_req, res) => res.json(s.market.indices()));
   r.get("/market/sectors", (_req, res) => res.json({ sectors: SECTORS, summary: s.market.sectorSummary() }));
+  // ---------- Score de qualité et de risque, profils d'émetteurs, radar ----------
+  r.get("/market/quality", (_req, res) => res.json({ items: s.quality.all(), rules: s.quality.rules() }));
+  r.get("/market/quality/rules", (_req, res) => res.json(s.quality.rules()));
+  r.get("/market/quality/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json({ ...s.quality.assess(symbol), profile: s.quality.profile(symbol) });
+  });
+  r.get("/market/profile/:symbol", (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
+    res.json(s.quality.profile(symbol));
+  });
+  r.put(
+    "/market/profile/:symbol",
+    guard,
+    asyncHandler((req, res) => {
+      if (req.auth!.role !== "analyst" && req.auth!.role !== "admin") throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const pct = z.number().min(0).max(100).nullable().optional();
+      const body = z.object({ freeFloatPct: pct, mainHolderPct: pct, mainHolderName: z.string().max(120).nullable().optional(), statePct: pct, sharesOutstanding: z.number().positive().nullable().optional(), payoutRatioPct: z.number().min(0).max(1000).nullable().optional(), dividendYears: z.number().int().min(0).max(100).nullable().optional(), suspended: z.boolean().optional(), suspendedReason: z.string().max(300).nullable().optional(), note: z.string().max(1000).nullable().optional() }).parse(req.body);
+      res.json({ profile: s.quality.saveProfile(req.params.symbol, body, req.auth!.sub), quality: s.quality.assess(req.params.symbol) });
+    }),
+  );
+  r.get("/market/radar", (req, res) => {
+    const kind = req.query.kind ? (String(req.query.kind) as RadarKind) : undefined;
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    const since = req.query.since ? Number(req.query.since) : undefined;
+    res.json({ items: s.radar.list({ kind, symbol, since, limit: Number(req.query.limit ?? 100) }), status: s.radar.status() });
+  });
+  r.post("/market/radar/scan", guard, (req, res) => {
+    if (req.auth!.role !== "analyst" && req.auth!.role !== "admin") return res.status(403).json({ error: "Réservé aux analystes" });
+    res.json({ inserted: s.radar.scan(), status: s.radar.status() });
+  });
+
   // ---------- Documents des sociétés (rapports, états financiers, communiqués) ----------
   const staff = (req: { auth?: { role: string } }) => req.auth!.role === "analyst" || req.auth!.role === "admin";
   r.get("/market/documents", (req, res) => {

@@ -18,6 +18,7 @@ import { NewsPage } from "./pages/NewsPage";
 import { ForecastsPage } from "./pages/ForecastsPage";
 import { HoldingsPage } from "./pages/HoldingsPage";
 import { BondsPage } from "./pages/BondsPage";
+import { RadarPage } from "./pages/RadarPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { AccountPage } from "./pages/AccountPage";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
@@ -72,6 +73,7 @@ export function App() {
             <Route path="/actualites" element={<NewsPage />} />
             <Route path="/previsions" element={<ForecastsPage />} />
             <Route path="/obligations" element={<BondsPage />} />
+            <Route path="/radar" element={<RadarPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/compte" element={<AccountPage />} />
             <Route path="/conseil" element={<AdvisoryRequestPage />} />

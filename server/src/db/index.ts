@@ -370,6 +370,34 @@ function migrate(d: DB): void {
       fetched_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_company_documents_symbol ON company_documents(symbol, published_at);
+    CREATE TABLE IF NOT EXISTS company_profiles (
+      symbol TEXT PRIMARY KEY,
+      free_float_pct REAL,
+      main_holder_pct REAL,
+      main_holder_name TEXT,
+      state_pct REAL,
+      shares_outstanding REAL,
+      payout_ratio_pct REAL,
+      dividend_years INTEGER,
+      suspended INTEGER NOT NULL DEFAULT 0,
+      suspended_reason TEXT,
+      note TEXT,
+      updated_by INTEGER,
+      updated_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS radar_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      symbol TEXT,
+      title TEXT NOT NULL,
+      detail TEXT,
+      url TEXT,
+      source TEXT NOT NULL,
+      date INTEGER NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_radar_date ON radar_events(date);
     CREATE TABLE IF NOT EXISTS model_params (
       symbol TEXT NOT NULL,
       horizon TEXT NOT NULL,
