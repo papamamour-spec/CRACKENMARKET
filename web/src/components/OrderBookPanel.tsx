@@ -51,6 +51,11 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
           ))}
         </div>
       </div>
+      {book.official && (
+        <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Bulletin officiel du {new Date(book.official.ts).toLocaleDateString("fr-FR")} : meilleure demande <b className="up">{book.official.bid != null ? fmtNum(book.official.bid) : "—"}</b>{book.official.bidQty != null ? ` × ${fmtNum(book.official.bidQty)}` : ""} · meilleure offre <b className="down">{book.official.ask != null ? fmtNum(book.official.ask) : "—"}</b>{book.official.askQty != null ? ` × ${fmtNum(book.official.askQty)}` : ""}
+        </p>
+      )}
       {book.estimated && <p className="disclaimer" style={{ marginTop: 6 }}>Profondeur reconstituée à partir du dernier cours et de la liquidité de la valeur (la BRVM ne diffuse pas son carnet en accès public).</p>}
     </div>
   );

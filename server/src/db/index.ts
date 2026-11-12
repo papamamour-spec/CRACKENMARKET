@@ -405,6 +405,59 @@ function migrate(d: DB): void {
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (symbol, horizon)
     );
+    CREATE TABLE IF NOT EXISTS corporate_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      kind TEXT NOT NULL,            -- split | reverse_split | bonus
+      ex_date INTEGER NOT NULL,      -- début de journée UTC (ms)
+      ratio REAL,
+      status TEXT NOT NULL DEFAULT 'confirmé', -- confirmé | suspecté
+      source TEXT NOT NULL,
+      note TEXT,
+      updated_by INTEGER,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (symbol, kind, ex_date)
+    );
+    CREATE TABLE IF NOT EXISTS dividends (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      fiscal_year INTEGER NOT NULL,
+      gross REAL,
+      net REAL,
+      ex_date INTEGER,
+      payment_date INTEGER,
+      agm_date INTEGER,
+      status TEXT NOT NULL DEFAULT 'proposé', -- proposé | approuvé | payé
+      source TEXT NOT NULL,
+      url TEXT,
+      note TEXT,
+      updated_by INTEGER,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (symbol, fiscal_year)
+    );
+    CREATE TABLE IF NOT EXISTS daily_stats (
+      symbol TEXT NOT NULL,
+      ts INTEGER NOT NULL,           -- séance (début de journée UTC, ms)
+      ref_price REAL,
+      open REAL,
+      high REAL,
+      low REAL,
+      close REAL,
+      change_pct REAL,
+      volume INTEGER,
+      value REAL,
+      trades INTEGER,
+      bid REAL,
+      bid_qty INTEGER,
+      ask REAL,
+      ask_qty INTEGER,
+      reserved TEXT,                 -- up | down | null
+      suspended INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (symbol, ts)
+    );
+    CREATE INDEX IF NOT EXISTS idx_daily_stats_ts ON daily_stats(ts);
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
   addColumn(d, "bonds", "source", "TEXT NOT NULL DEFAULT 'seed'");

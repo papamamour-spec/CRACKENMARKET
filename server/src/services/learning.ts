@@ -129,7 +129,10 @@ export class LearningService extends EventEmitter {
           while (i >= 0 && candles[i].ts > r.made_at) i--;
           const h = HORIZON_DAYS[r.horizon];
           if (i < 0 || i + h >= candles.length) continue;
-          const realized = ((candles[i + h].close - r.price) / r.price) * 100;
+          // base = clôture (ajustée) de la séance de la prévision : cohérent avec les séries ajustées
+          // des dividendes et fractionnements, le réalisé est donc un rendement total
+          const base = candles[i].close > 0 ? candles[i].close : r.price;
+          const realized = ((candles[i + h].close - base) / base) * 100;
           const hit = Math.sign(realized) === Math.sign(r.expected_pct) && r.expected_pct !== 0 ? 1 : 0;
           const absErr = Math.abs(realized - r.expected_pct);
           const covered = realized >= r.p5 && realized <= r.p95 ? 1 : 0;

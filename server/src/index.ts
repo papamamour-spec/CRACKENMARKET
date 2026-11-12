@@ -24,6 +24,8 @@ import { BondService } from "./services/bonds.js";
 import { DocumentService } from "./services/documents.js";
 import { QualityService } from "./services/quality.js";
 import { RadarService } from "./services/radar.js";
+import { CorporateService } from "./services/corporate.js";
+import { BocService } from "./services/boc.js";
 import { attachWebSocket } from "./ws.js";
 
 async function main(): Promise<void> {
@@ -56,14 +58,22 @@ async function main(): Promise<void> {
   const documents = new DocumentService(db);
   documents.attachNews(news);
   documents.start();
+  const corporate = new CorporateService(db, market);
+  corporate.attach(news, documents);
+  advisor.attachCorporate(corporate);
+  const boc = new BocService(db, market);
+  boc.start();
+  forecasts.attachOfficial(corporate, boc);
   const quality = new QualityService(db, market, advisor);
   quality.attach(documents, news);
+  quality.attachCorporate(corporate);
   holdings.attachQuality(quality);
   const radar = new RadarService(db, news, documents, bonds);
+  radar.attachCorporate(corporate);
   radar.start();
   forecasts.start();
   learning.start();
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar };
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

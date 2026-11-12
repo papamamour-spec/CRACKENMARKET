@@ -46,6 +46,8 @@ export interface HorizonForecast {
   models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
   contributions: Contribution[];
   explanations: string[];
+  /** détachement de dividende attendu dans l'horizon : les objectifs de cours en sont diminués, le rendement total non */
+  dividendInHorizon: { exDate: number; amount: number; pct: number } | null;
 }
 
 export interface Forecast {
@@ -67,7 +69,16 @@ const FACTORS: { key: string; label: string; fmt: (v: number) => string }[] = [
   { key: "slope20", label: "Pente 20 séances", fmt: (v) => `${v.toFixed(2)} %/séance` },
   { key: "mkt21", label: "Momentum du marché 1 mois", fmt: (v) => `${(v * 100).toFixed(1)} %` },
   { key: "season", label: "Saisonnalité du mois", fmt: (v) => `${(v * 100).toFixed(1)} %` },
+  // Facteurs issus du bulletin officiel de la cote (nuls tant qu'aucun bulletin n'est collecté)
+  { key: "imb1", label: "Déséquilibre du carnet officiel", fmt: (v) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(0)} %` },
+  { key: "res5", label: "Réservations sur 5 séances", fmt: (v) => `${v > 0 ? "+" : ""}${v.toFixed(0)}` },
 ];
+
+/** Séries officielles alignées sur les bougies : déséquilibre carnet [-1, 1] et réservation (+1 hausse, −1 baisse). */
+export interface OfficialSeries {
+  imbalance: (number | null)[];
+  reserved: (number | null)[];
+}
 
 interface Row {
   x: number[];
@@ -89,7 +100,7 @@ export function ewmaVol(returns: number[], lambda = 0.94): number {
 }
 
 /** Facteurs à la date t (n'utilise que les données jusqu'à t inclus). */
-function featuresAt(closes: number[], vols: number[], idx: number[] | null, sma50: number[], rsi14: number[], t: number, monthEffect: Map<number, number>, dates: number[]): number[] | null {
+function featuresAt(closes: number[], vols: number[], idx: number[] | null, sma50: number[], rsi14: number[], t: number, monthEffect: Map<number, number>, dates: number[], official: OfficialSeries | null): number[] | null {
   if (t < 70) return null;
   const c = closes[t];
   const mom21 = Math.log(c / closes[t - 21]);
@@ -105,7 +116,17 @@ function featuresAt(closes: number[], vols: number[], idx: number[] | null, sma5
   const mkt21 = idx && idx[t] && idx[t - 21] ? Math.log(idx[t] / idx[t - 21]) : 0;
   const month = new Date(dates[t]).getUTCMonth();
   const season = monthEffect.get(month) ?? 0;
-  return [mom21, mom63, rev50, vol20, rsiN, volRatio, slope20, mkt21, season];
+  // bulletin officiel : dernier déséquilibre connu (5 séances au plus) et solde des réservations sur 5 séances
+  let imb1 = 0;
+  let res5 = 0;
+  if (official) {
+    for (let k = t; k >= Math.max(0, t - 4); k--) {
+      const v = official.imbalance[k];
+      if (v != null) { imb1 = Math.max(-1, Math.min(1, v)); break; }
+    }
+    for (let k = Math.max(0, t - 4); k <= t; k++) res5 += official.reserved[k] ?? 0;
+  }
+  return [mom21, mom63, rev50, vol20, rsiN, volRatio, slope20, mkt21, season, imb1, res5];
 }
 
 /** Effet saisonnier : rendement moyen à 21 séances observé pour chaque mois, sur la fenêtre donnée. */
@@ -187,6 +208,10 @@ export interface ForecastInput {
   indexCloses?: number[] | null;
   /** sentiment d'actualité récent [-1, 1] et nombre d'articles */
   news?: { score: number; count: number };
+  /** séries du bulletin officiel de la cote alignées sur `candles` (même longueur), facultatif */
+  official?: OfficialSeries | null;
+  /** prochain détachement de dividende connu : date d'effet et montant net par action */
+  upcomingDividend?: { exDate: number; amount: number } | null;
   seed?: number;
 }
 
@@ -203,6 +228,8 @@ export function forecast(input: ForecastInput): Forecast {
   const rsi14 = rsi(closes, 14);
   const idx = input.indexCloses && input.indexCloses.length === n ? input.indexCloses : null;
   const rand = rng(input.seed ?? 42);
+  const official = input.official && input.official.imbalance.length === n && input.official.reserved.length === n ? input.official : null;
+  const lastTs = dates[n - 1] ?? 0;
   const horizons: HorizonForecast[] = [];
 
   for (const horizon of ["1W", "1M", "3M"] as Horizon[]) {
@@ -211,7 +238,7 @@ export function forecast(input: ForecastInput): Forecast {
     const rows: Row[] = [];
     const seasonTrain = seasonality(closes, dates, Math.max(0, n - 1 - h));
     for (let t = 70; t + h < n; t += 2) {
-      const x = featuresAt(closes, vols, idx, sma50, rsi14, t, seasonTrain, dates);
+      const x = featuresAt(closes, vols, idx, sma50, rsi14, t, seasonTrain, dates, official);
       if (!x) continue;
       rows.push({ x, y: Math.log(closes[t + h] / closes[t]), t });
     }
@@ -256,7 +283,7 @@ export function forecast(input: ForecastInput): Forecast {
     let ridgePct = 0;
     const contributions: Contribution[] = [];
     const seasonAll = seasonality(closes, dates, n - 1);
-    const xNow = featuresAt(closes, vols, idx, sma50, rsi14, n - 1, seasonAll, dates);
+    const xNow = featuresAt(closes, vols, idx, sma50, rsi14, n - 1, seasonAll, dates, official);
     if (rows.length >= 60 && xNow) {
       const { mu, sd } = standardize(rows);
       const beta = ridge(rows.map((r) => z(r.x, mu, sd)), rows.map((r) => r.y), lambda);
@@ -323,6 +350,13 @@ export function forecast(input: ForecastInput): Forecast {
     const skill = Math.max(0, hitRate - baselineHitRate) + Math.max(0, hitRate - 0.5) * 0.5;
     const confidence = Math.max(0.1, Math.min(0.9, 0.3 + skill * 2 + Math.min(0.2, samples / 1000)));
 
+    // Détachement dans l'horizon : h séances ≈ h × 7/5 jours civils (+2 de marge) ; le cours cible baisse
+    // du dividende net, le rendement total prévu (cours + dividende) reste celui de l'ensemble
+    const div = input.upcomingDividend;
+    const horizonEnd = lastTs + Math.ceil((h * 7) / 5 + 2) * 86_400_000;
+    const dividendInHorizon = div && div.amount > 0 && div.exDate > lastTs && div.exDate <= horizonEnd && price > div.amount ? { exDate: div.exDate, amount: div.amount, pct: Math.round((div.amount / price) * 1000) / 10 } : null;
+    const target = (qPct: number) => Math.round(price * (1 + qPct / 100) - (dividendInHorizon ? dividendInHorizon.amount : 0));
+
     const sortedContrib = [...contributions].filter((c) => c.factor !== "base").sort((a, b) => Math.abs(b.contributionPct) - Math.abs(a.contributionPct));
     const explanations: string[] = [];
     for (const c of sortedContrib.slice(0, 3)) {
@@ -334,6 +368,7 @@ export function forecast(input: ForecastInput): Forecast {
     if (newsAdj !== 0) explanations.push(`Actualité récente ${newsAdj > 0 ? "favorable" : "défavorable"} : ${newsAdj > 0 ? "+" : ""}${newsAdj.toFixed(1)} pt (poids appris ${P.newsFactor.toFixed(2)})`);
     if (Math.abs(biasAdj) >= 0.2) explanations.push(`Correction de biais apprise sur ${P.resolved} prévisions résolues : ${biasAdj > 0 ? "+" : ""}${biasAdj.toFixed(1)} pt`);
     if (P.resolved >= 10) explanations.push(`En conditions réelles (${P.resolved} prévisions résolues) : direction correcte ${Math.round((P.hits / P.resolved) * 100)} % du temps, intervalle 90 % tenu ${Math.round((P.covered / P.resolved) * 100)} % du temps${P.volScale !== 1 ? ` ; largeur des intervalles ajustée ×${P.volScale.toFixed(2)}` : ""}`);
+    if (dividendInHorizon) explanations.push(`Détachement de ${dividendInHorizon.amount.toLocaleString("fr-FR")} FCFA net attendu le ${new Date(dividendInHorizon.exDate).toLocaleDateString("fr-FR")} : les objectifs de cours en sont diminués (−${dividendInHorizon.pct} %), le rendement total attendu l'inclut`);
     if (ridgeShrink < 1 && samples >= 30) explanations.push(`Le modèle n'améliore que peu l'erreur naïve en test : prévision ramenée à ${Math.round(ridgeShrink * 100)} % de son écart à la dérive historique (${drift > 0 ? "+" : ""}${drift.toFixed(1)} %)`);
     explanations.push(samples >= 30 ? `Sur ${samples} fenêtres de test passées, la direction a été correcte ${Math.round(hitRate * 100)} % du temps (référence « toujours en hausse » : ${Math.round(baselineHitRate * 100)} %)` : "Historique de test insuffisant : prévision peu fiable");
 
@@ -345,7 +380,7 @@ export function forecast(input: ForecastInput): Forecast {
       probAbove5: Math.round(probAbove5 * 100) / 100,
       probBelow5: Math.round(probBelow5 * 100) / 100,
       quantiles: { p5: q(0.05), p25: q(0.25), p50: q(0.5), p75: q(0.75), p95: q(0.95) },
-      priceTargets: { p5: Math.round(price * (1 + q(0.05) / 100)), p50: Math.round(price * (1 + q(0.5) / 100)), p95: Math.round(price * (1 + q(0.95) / 100)) },
+      priceTargets: { p5: target(q(0.05)), p50: target(q(0.5)), p95: target(q(0.95)) },
       accuracy: { hitRate: Math.round(hitRate * 100) / 100, baselineHitRate: Math.round(baselineHitRate * 100) / 100, maePct: Math.round(maePct * 10) / 10, naiveMaePct: Math.round(naiveMaePct * 10) / 10, samples },
       confidence: Math.round(confidence * 100) / 100,
       models: { ridgePct: Math.round(ridgePct * 10) / 10, arPct: Math.round(arPct * 10) / 10, newsAdjustmentPct: Math.round(newsAdj * 10) / 10, weights },
@@ -365,6 +400,7 @@ export function forecast(input: ForecastInput): Forecast {
       },
       contributions,
       explanations,
+      dividendInHorizon,
     });
   }
 

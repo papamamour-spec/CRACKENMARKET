@@ -71,6 +71,7 @@ export function Layout() {
         { to: "/classement", label: "Classement", icon: "♛" },
         { to: "/alertes", label: "Suivi & alertes", icon: "☆" },
         { to: "/backtest", label: "Backtest", icon: "⟲" },
+        { to: "/donnees", label: "Données officielles", icon: "▦", roles: ["analyst", "admin"] },
       ],
     },
     {

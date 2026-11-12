@@ -6,6 +6,7 @@ import { NewsPanel } from "../components/NewsPanel";
 import { ForecastCard } from "../components/ForecastCard";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { QualityCard } from "../components/QualityCard";
+import { OfficialDataPanel } from "../components/OfficialDataPanel";
 import { PriceChart } from "../components/PriceChart";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { ScoreBar } from "../components/ScoreBar";
@@ -115,6 +116,7 @@ export function InstrumentPage() {
           {rec && <RecommendationCard rec={rec} detailed />}
           <QualityCard symbol={symbol} />
           <ForecastCard symbol={symbol} />
+          <OfficialDataPanel symbol={symbol} />
           <NewsPanel symbol={symbol} limit={8} title={`Actualité ${symbol}`} />
           <DocumentsPanel symbol={symbol} title={`Documents ${symbol}`} />
           <details className="card">
