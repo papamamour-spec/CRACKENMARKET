@@ -458,6 +458,28 @@ function migrate(d: DB): void {
       PRIMARY KEY (symbol, ts)
     );
     CREATE INDEX IF NOT EXISTS idx_daily_stats_ts ON daily_stats(ts);
+    CREATE TABLE IF NOT EXISTS fundamentals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      period TEXT NOT NULL,            -- « 2025 », « S1 2025 », « T3 2025 »
+      period_end INTEGER NOT NULL,     -- fin de période (ms UTC)
+      published_at INTEGER,
+      revenue REAL,
+      net_income REAL,
+      equity REAL,
+      shares REAL,
+      eps REAL,
+      dps REAL,
+      revenue_growth_pct REAL,
+      net_income_growth_pct REAL,
+      source TEXT NOT NULL,
+      url TEXT,
+      note TEXT,
+      status TEXT NOT NULL DEFAULT 'auto', -- auto | analyste
+      updated_by INTEGER,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (symbol, period)
+    );
     CREATE TABLE IF NOT EXISTS evaluation_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at INTEGER NOT NULL,
@@ -466,6 +488,7 @@ function migrate(d: DB): void {
     );
   `);
   addColumn(d, "held_positions", "asset_type", "TEXT NOT NULL DEFAULT 'equity'");
+  addColumn(d, "forecast_log", "panel_pct", "REAL");
   addColumn(d, "bonds", "source", "TEXT NOT NULL DEFAULT 'seed'");
   addColumn(d, "bonds", "dates_estimated", "INTEGER NOT NULL DEFAULT 0");
   addColumn(d, "bonds", "quoted_pct", "REAL");

@@ -115,7 +115,7 @@ export function ForecastCard({ symbol }: { symbol: string }) {
         <div>
           <h4>Pourquoi cette prévision ({HORIZON_LABEL[h]})</h4>
           <ul className="clean" style={{ fontSize: 13 }}>{cur.explanations.map((e, i) => <li key={i}>• {e}</li>)}</ul>
-          <p className="muted" style={{ fontSize: 11, margin: "6px 0 0" }}>Ensemble : régression {fmtPct(cur.models.ridgePct, 1)} (poids {Math.round(cur.models.weights.ridge * 100)} %) · AR {fmtPct(cur.models.arPct, 1)} (poids {Math.round(cur.models.weights.ar * 100)} %){cur.models.newsAdjustmentPct !== 0 ? ` · actualité ${fmtPct(cur.models.newsAdjustmentPct, 1)}` : ""} · erreur moyenne {cur.accuracy.maePct} % (sans modèle {cur.accuracy.naiveMaePct} %).</p>
+          <p className="muted" style={{ fontSize: 11, margin: "6px 0 0" }}>Ensemble : régression {fmtPct(cur.models.ridgePct, 1)} (poids {Math.round(cur.models.weights.ridge * 100)} %) · AR {fmtPct(cur.models.arPct, 1)} (poids {Math.round(cur.models.weights.ar * 100)} %){cur.models.panelPct != null ? ` · panel de la cote ${fmtPct(cur.models.panelPct, 1)} (poids ${Math.round(cur.models.weights.panel * 100)} %)` : ""}{cur.models.newsAdjustmentPct !== 0 ? ` · actualité ${fmtPct(cur.models.newsAdjustmentPct, 1)}` : ""} · erreur moyenne {cur.accuracy.maePct} % (sans modèle {cur.accuracy.naiveMaePct} %).</p>
         </div>
         <div>
           <h4>Contribution des facteurs (points de %)</h4>

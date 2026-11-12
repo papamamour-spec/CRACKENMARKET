@@ -128,6 +128,30 @@ export function AdvisoryReportView({ v, compact = false }: { v: AdvisoryView; co
             </div>
             {r.optimization.frontier.length > 0 && <Frontier o={r.optimization} />}
           </div>
+          {r.optimization.blackLitterman && r.optimization.blackLitterman.lines.length > 0 && (
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Rendements attendus Black-Litterman · équilibre du marché corrigé par les prévisions (aversion au risque {r.optimization.blackLitterman.delta}, τ {r.optimization.blackLitterman.tau})</summary>
+              <div className="table-scroll">
+                <table style={{ marginTop: 6 }}>
+                  <thead><tr><th className="left">Valeur</th><th>Poids de marché</th><th>Équilibre</th><th>Vue (prévision)</th><th>Confiance</th><th>Retenu</th><th>Part de la vue</th></tr></thead>
+                  <tbody>
+                    {[...r.optimization.blackLitterman.lines].sort((a, b) => b.posteriorPct - a.posteriorPct).map((l) => (
+                      <tr key={l.symbol}>
+                        <td className="left"><b>{l.symbol}</b></td>
+                        <td className="mono muted">{l.marketWeightPct} %</td>
+                        <td className="mono">{fmtPct(l.equilibriumPct, 1)}</td>
+                        <td className={`mono ${signClass(l.viewPct)}`}>{fmtPct(l.viewPct, 1)}</td>
+                        <td className="mono muted">{Math.round(l.confidence * 100)} %</td>
+                        <td className={`mono ${signClass(l.posteriorPct)}`}><b>{fmtPct(l.posteriorPct, 1)}</b></td>
+                        <td className="mono muted">{l.viewSharePct} %</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted" style={{ fontSize: 11 }}>L'équilibre est le rendement implicite des capitalisations (ou de leur proxy) ; la vue est la prévision annualisée ; le rendement retenu s'en rapproche d'autant plus que la confiance est élevée. Une vue incertaine ne déplace donc presque pas l'allocation.{r.optimization.blackLitterman.skipped.length ? ` Sans historique suffisant (vue conservée) : ${r.optimization.blackLitterman.skipped.join(", ")}.` : ""}</p>
+            </details>
+          )}
         </div>
       )}
       {r.bonds && (r.bonds.lines.length > 0 || r.bonds.targetSharePct > 0) && (

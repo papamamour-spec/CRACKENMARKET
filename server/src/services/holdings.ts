@@ -4,6 +4,7 @@ import { diagnosePortfolio, recommend, type PortfolioDiagnostic, type Recommenda
 import type { BehaviorProfile, PositionRecord } from "../engine/behavior.js";
 import { HORIZON_DAYS, type Forecast } from "../engine/forecast.js";
 import { optimize, shrinkCovariance } from "../engine/optimizer.js";
+import { applyBlackLitterman, type BLLine } from "../engine/blacklitterman.js";
 import { RISK_FREE_RATE } from "./advisory.js";
 import type { AdvisorService } from "./advisor.js";
 import type { ForecastService } from "./forecast.js";
@@ -105,6 +106,8 @@ export interface PortfolioAnalysis {
     currentSharpe: number;
     trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[];
     keep: { symbol: string; weightPct: number }[];
+    returnModel: "black_litterman";
+    blackLitterman: { delta: number; lines: BLLine[] };
   } | null;
   actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" | "obligations" }[];
   summary: string[];
@@ -134,6 +137,12 @@ export class HoldingsService {
 
   attachBonds(b: BondService): void {
     this.bonds = b;
+  }
+
+  /** Capitalisation (ou proxy) pour les poids d'équilibre de Black-Litterman. */
+  private marketCapOf(symbol: string, price: number): number {
+    const shares = this.quality?.profile(symbol).sharesOutstanding ?? null;
+    return shares && shares > 0 ? shares * price : (INSTRUMENT_MAP.get(symbol)?.avgVolume ?? 1000) * 50 * price;
   }
 
   attachQuality(q: QualityService): void {
@@ -545,7 +554,12 @@ export class HoldingsService {
       };
       // prime de détention : vendre puis racheter coûte frais de courtage et fiscalité (≈ 3 pts annuels), la cible favorise donc ce qui est déjà en portefeuille
       const HOLD_BONUS = 0.03;
-      const assets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: expectedAnnual(r) + (positions.some((p) => p.symbol === r.symbol) ? HOLD_BONUS : 0), dividendYield: r.dividendYield / 100, price: r.price }));
+      const rawAssets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: expectedAnnual(r), dividendYield: r.dividendYield / 100, price: r.price }));
+      // Black-Litterman : les vues (prévisions) sont ramenées vers l'équilibre de marché en proportion de leur confiance
+      const caps = new Map(rawAssets.map((a) => [a.symbol, this.marketCapOf(a.symbol, a.price)]));
+      const conf = new Map(rawAssets.map((a) => { const fc = fcMap.get(a.symbol); return [a.symbol, fc ? 0.2 + 0.6 * fc.horizons[2].confidence : 0.3]; }));
+      const bl = applyBlackLitterman(rawAssets, retAll, caps, conf, RISK_FREE_RATE);
+      const assets = bl.assets.map((a) => ({ ...a, expectedReturn: a.expectedReturn + (positions.some((p) => p.symbol === a.symbol) ? HOLD_BONUS : 0) }));
       const cashReserve = tol >= 4 ? 0.1 : tol >= 3 ? 0.15 : 0.3;
       // la poche actions cible = tout sauf la réserve de liquidités et la poche obligataire recommandée
       const equityShare = Math.max(0.1, 1 - cashReserve - targetBondPct / 100);
@@ -576,6 +590,8 @@ export class HoldingsService {
           currentSharpe: volatility > 0 ? r2((curRet - RISK_FREE_RATE) / volatility) : 0,
           trades,
           keep: opt.weights.filter((w) => positions.some((p) => p.symbol === w.symbol)).map((w) => ({ symbol: w.symbol, weightPct: r1(w.weight * 100) })),
+          returnModel: "black_litterman",
+          blackLitterman: { delta: bl.delta, lines: bl.lines },
         };
       }
     } catch {

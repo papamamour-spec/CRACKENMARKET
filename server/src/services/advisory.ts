@@ -8,6 +8,8 @@ import type { AdvisorService } from "./advisor.js";
 import type { MarketService } from "./market.js";
 import type { NewsService } from "./news.js";
 import type { ForecastService } from "./forecast.js";
+import type { QualityService } from "./quality.js";
+import { applyBlackLitterman, type BLApplied, type BLLine } from "../engine/blacklitterman.js";
 import { optimize, type OptimizationResult } from "../engine/optimizer.js";
 import type { Forecast } from "../engine/forecast.js";
 import { targetBondSharePct, type BondAllocationLine, type BondService } from "./bonds.js";
@@ -44,6 +46,8 @@ export interface AdvisoryInput {
   excludedSymbols?: string[];
   /** Part du capital à placer en obligations (%) ; absent = selon le profil, 0 = aucune */
   bondSharePct?: number;
+  /** Rendements attendus de l'optimiseur : Black-Litterman (équilibre de marché + vues pondérées par leur confiance, défaut) ou vues brutes */
+  returnModel?: "black_litterman" | "views";
 }
 
 export interface BondSleeve {
@@ -81,6 +85,8 @@ export interface OptimizationSummary {
   constraints: { maxWeightPct: number; maxSectorWeightPct: number; maxLines: number; investedMaxPct: number; excludedSectors: string[]; excludedSymbols: string[] };
   frontier: { targetReturnPct: number; volatilityPct: number; expectedReturnPct: number }[];
   notes: string[];
+  returnModel: "black_litterman" | "views";
+  blackLitterman: { delta: number; tau: number; lines: BLLine[]; skipped: string[] } | null;
 }
 
 export interface AllocationLine {
@@ -172,6 +178,7 @@ export class AdvisoryService extends EventEmitter {
   private newsService: NewsService | null = null;
   private forecasts: ForecastService | null = null;
   private bonds: BondService | null = null;
+  private quality: QualityService | null = null;
 
   constructor(
     private readonly db: DB,
@@ -191,6 +198,18 @@ export class AdvisoryService extends EventEmitter {
 
   attachBonds(b: BondService): void {
     this.bonds = b;
+  }
+
+  /** Profils d'émetteurs : nombre d'actions pour les capitalisations d'équilibre de Black-Litterman. */
+  attachQuality(q: QualityService): void {
+    this.quality = q;
+  }
+
+  /** Capitalisation (ou son proxy) d'une valeur : actions en circulation × cours, sinon le proxy de flottant de l'indice. */
+  marketCap(symbol: string, price: number): number {
+    const inst = INSTRUMENT_MAP.get(symbol);
+    const shares = this.quality?.profile(symbol).sharesOutstanding ?? null;
+    return shares && shares > 0 ? shares * price : (inst?.avgVolume ?? 1000) * 50 * price;
   }
 
   /**
@@ -263,7 +282,15 @@ export class AdvisoryService extends EventEmitter {
       const closes = this.market.history(r.symbol, 300).map((c) => c.close);
       if (closes.length >= 60) returnsBySymbol.set(r.symbol, closes.slice(1).map((v, k) => Math.log(v / closes[k])));
     }
-    const assets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: this.expectedAnnualReturn(r, fcMap.get(r.symbol), declared.horizonMonths), dividendYield: r.dividendYield / 100, price: r.price }));
+    const rawAssets = universe.map((r) => ({ symbol: r.symbol, sector: r.sector, expectedReturn: this.expectedAnnualReturn(r, fcMap.get(r.symbol), declared.horizonMonths), dividendYield: r.dividendYield / 100, price: r.price }));
+    const returnModel: AdvisoryInput["returnModel"] = input.returnModel ?? "black_litterman";
+    let bl: BLApplied | null = null;
+    if (returnModel === "black_litterman") {
+      const caps = new Map(rawAssets.map((a) => [a.symbol, this.marketCap(a.symbol, a.price)]));
+      const conf = new Map(rawAssets.map((a) => { const fc = fcMap.get(a.symbol); return [a.symbol, fc ? 0.2 + 0.6 * fc.horizons[2].confidence : 0.3]; }));
+      bl = applyBlackLitterman(rawAssets, returnsBySymbol, caps, conf, RISK_FREE_RATE);
+    }
+    const assets = bl ? bl.assets : rawAssets;
     const target = input.targetYieldPct != null && input.targetYieldPct > 0 ? input.targetYieldPct / 100 : null;
     let opt: OptimizationResult | null = null;
     try {
@@ -392,7 +419,10 @@ export class AdvisoryService extends EventEmitter {
       constraints: { maxWeightPct: r0(maxWeight * 100), maxSectorWeightPct: r0(maxSectorWeight * 100), maxLines, investedMaxPct: r0(investedMax * 100), excludedSectors, excludedSymbols },
       frontier: opt ? opt.frontier.map((p) => ({ targetReturnPct: r1(p.targetReturn * 100), volatilityPct: r1(p.volatility * 100), expectedReturnPct: r1(p.expectedReturn * 100) })) : [],
       notes: opt ? [...opt.notes] : ["Optimiseur indisponible : allocation heuristique par score."],
+      returnModel,
+      blackLitterman: bl ? { delta: bl.delta, tau: bl.tau, lines: bl.lines, skipped: bl.skipped } : null,
     };
+    if (bl && method === "optimizer") summary.push(`Rendements attendus selon Black-Litterman : équilibre du marché (capitalisations, aversion au risque ${bl.delta}) corrigé par les prévisions en proportion de leur confiance ; ${bl.lines.length} valeur(s), part moyenne des vues ${Math.round(bl.lines.reduce((a, l) => a + l.viewSharePct, 0) / Math.max(1, bl.lines.length))} %.`);
     if (method === "optimizer") {
       summary.push(`Allocation optimisée (moyenne-variance, covariance sur 300 séances) : ${optimization.expectedAnnualReturnPct} % de rendement annuel attendu pour ${optimization.volatilityPct} % de volatilité (ratio de Sharpe ${optimization.sharpe}, taux sans risque ${optimization.riskFreePct} %).`);
       if (target != null) summary.push(optimization.reachedTarget ? `Objectif de rendement de ${optimization.targetYieldPct} % atteint avec le portefeuille le moins risqué possible sous vos contraintes.` : `Objectif de ${optimization.targetYieldPct} % non atteignable sous vos contraintes : maximum ${optimization.maxAchievablePct} %. Relâchez le poids maximal, le nombre de lignes ou l'horizon.`);

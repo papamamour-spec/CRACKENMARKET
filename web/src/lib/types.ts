@@ -465,7 +465,10 @@ export interface OptimizationSummary {
   constraints: { maxWeightPct: number; maxSectorWeightPct: number; maxLines: number; investedMaxPct: number; excludedSectors: string[]; excludedSymbols: string[] };
   frontier: { targetReturnPct: number; volatilityPct: number; expectedReturnPct: number }[];
   notes: string[];
+  returnModel: "black_litterman" | "views";
+  blackLitterman: { delta: number; tau: number; lines: BLLine[]; skipped: string[] } | null;
 }
+export interface BLLine { symbol: string; marketWeightPct: number; equilibriumPct: number; viewPct: number; posteriorPct: number; confidence: number; viewSharePct: number }
 export interface LineForecast {
   symbol: string;
   expectedReturn3MPct: number;
@@ -489,7 +492,8 @@ export interface HorizonForecast {
   priceTargets: { p5: number; p50: number; p95: number };
   accuracy: { hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; samples: number };
   confidence: number;
-  models: { ridgePct: number; arPct: number; newsAdjustmentPct: number; weights: { ridge: number; ar: number } };
+  models: { ridgePct: number; arPct: number; panelPct: number | null; newsAdjustmentPct: number; weights: { ridge: number; ar: number; panel: number } };
+  panelContributions: Contribution[] | null;
   learning: { version: number; resolved: number; liveHitRate: number | null; liveMaePct: number | null; coverage90: number | null; brier: number | null; lambda: number; volScale: number; biasPct: number; newsFactor: number; modelErr: { ridge: number | null; ar: number | null }; updatedAt: number };
   contributions: Contribution[];
   explanations: string[];
@@ -595,7 +599,7 @@ export interface PortfolioAnalysis {
   risk: { volatilityPct: number; beta: number | null; maxDrawdown1yPct: number; var95_1mPct: number; var95_1m: number; topWeightPct: number; hhi: number; concentrationLabel: string };
   forecast: { expected1MPct: number; expected3MPct: number; probUp1M: number; probUp3M: number; amount1M: number; amount3M: number };
   performance: { portfolioPct: Record<string, number | null>; indexPct: Record<string, number | null> };
-  target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[]; keep: { symbol: string; weightPct: number }[] } | null;
+  target: { method: string; expectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; currentExpectedAnnualReturnPct: number; currentSharpe: number; trades: { symbol: string; name: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number }[]; keep: { symbol: string; weightPct: number }[]; returnModel?: "black_litterman"; blackLitterman?: { delta: number; lines: BLLine[] } } | null;
   actions: { priority: number; title: string; detail: string; kind: LineAction | "diversifier" | "liquidités" | "initier" | "obligations" }[];
   summary: string[];
   warnings: string[];
@@ -658,3 +662,10 @@ export interface StrategyStats { periods: number; totalReturnPct: number; annual
 export interface HorizonEvaluation { horizon: Horizon; horizonDays: number; n: number; dates: number; hitRate: number; baselineHitRate: number; maePct: number; naiveMaePct: number; skill: number; ic: { mean: number | null; std: number | null; tStat: number | null; positiveShare: number | null; dates: number }; coverage90: number; brier: number; baselineBrier: number; reliability: ReliabilityBin[]; strategy: { topK: StrategyStats; index: StrategyStats | null; equalWeight: StrategyStats; costsPct: number } }
 export interface EvaluationReport { generatedAt: number; config: EvaluationConfig; universe: number; firstDate: number | null; lastDate: number | null; horizons: HorizonEvaluation[]; verdict: string[] }
 export interface EvaluationResponse { latest: { id: number; createdAt: number; report: EvaluationReport } | null; status: { running: { startedAt: number; done: number; total: number; config: EvaluationConfig } | null; latestAt: number | null; reports: number } }
+
+// ---- Fondamentaux et modèle de panel ----
+export interface FinancialRecord { id: number; symbol: string; period: string; periodEnd: number; publishedAt: number | null; revenue: number | null; netIncome: number | null; equity: number | null; shares: number | null; eps: number | null; dps: number | null; revenueGrowthPct: number | null; netIncomeGrowthPct: number | null; source: string; url: string | null; note: string | null; status: "auto" | "analyste"; updatedAt: number }
+export interface ValuationMetrics { annualPeriod: string | null; latestPeriod: string | null; eps: number | null; bookValuePerShare: number | null; per: number | null; priceToBook: number | null; earningsYieldPct: number | null; roePct: number | null; revenueGrowthPct: number | null; netIncomeGrowthPct: number | null; payoutPct: number | null; netMarginPct: number | null; shares: number | null; missing: string[] }
+export interface CompanyFundamentals { symbol: string; name: string; price: number; records: FinancialRecord[]; metrics: ValuationMetrics }
+export interface FundamentalsResponse { items: CompanyFundamentals[]; status: { records: number; companies: number; auto: number; lastScan: { at: number; inserted: number; fetched: number; failed: number } | null } }
+export interface PanelSummary { asOf: number | null; computedAt: number | null; symbols: number; stats: { horizon: Horizon; samples: number; testSamples: number; testMaePct: number | null; naiveMaePct: number | null; hitRate: number | null; lambda: number }[]; ranking: { symbol: string; name: string; relPct: number; top: string | null }[] }
