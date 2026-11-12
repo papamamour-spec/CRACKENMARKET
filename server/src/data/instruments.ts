@@ -55,7 +55,8 @@ export const INSTRUMENTS: InstrumentDef[] = [
   { symbol: "SLBC", name: "Solibra", sector: "Industrie", country: "CI", refPrice: 41000, volatility: 0.25, avgVolume: 202, dividendYield: 4.7, brvm30: true },
   { symbol: "UNLC", name: "Unilever Côte d'Ivoire", sector: "Industrie", country: "CI", refPrice: 47000, volatility: 0.35, avgVolume: 1500, dividendYield: 0, brvm30: false },
   { symbol: "UNXC", name: "Uniwax", sector: "Industrie", country: "CI", refPrice: 1895, volatility: 0.32, avgVolume: 3029, dividendYield: 3.2, brvm30: false },
-  { symbol: "FTSC", name: "Filtisac", sector: "Industrie", country: "CI", refPrice: 1690, volatility: 0.3, avgVolume: 1193, dividendYield: 102.2, brvm30: false },
+  // Filtisac : le dividende 2026 (≈ 1 727 FCFA net) est exceptionnel (rendement 102 % au bulletin) ; rendement courant retenu ≈ 6 %
+  { symbol: "FTSC", name: "Filtisac", sector: "Industrie", country: "CI", refPrice: 1690, volatility: 0.3, avgVolume: 1193, dividendYield: 6, brvm30: false },
   { symbol: "SIVC", name: "Air Liquide Côte d'Ivoire", sector: "Industrie", country: "CI", refPrice: 1720, volatility: 0.35, avgVolume: 278, dividendYield: 2.5, brvm30: false },
   { symbol: "STBC", name: "SITAB", sector: "Industrie", country: "CI", refPrice: 21300, volatility: 0.26, avgVolume: 1161, dividendYield: 8.1, brvm30: false },
   { symbol: "SEMC", name: "Crown Siem Côte d'Ivoire", sector: "Industrie", country: "CI", refPrice: 1495, volatility: 0.34, avgVolume: 1200, dividendYield: 0.9, brvm30: false },

@@ -242,3 +242,24 @@ Les collecteurs ont été vérifiés sur les pages réelles de brvm.org et de si
 - **Rééquilibrage par bandes** (`engine/rebalance.ts`) : pour le portefeuille détenu, on n'agit que sur les lignes sorties de ± max(3 points, 25 % du poids cible) autour de la cible, opérations d'au moins 50 000 FCFA, frais estimés par ordre, revue périodique trimestrielle (prochaine date affichée) ; les lignes dans leur bande sont listées sans opération.
 - **Tests de résistance** (`engine/stress.ts`) : pire fenêtre de trois mois de l'indice dans l'historique disponible (2020 dès que l'historique réel le couvre) et meilleur rallye, rejoués valeur par valeur (bêta × indice sans historique) ; krach de place −20 % × bêta ; choc −15 % sur le premier secteur ; suspension du dividende de la première ligne ; taux +100, +200, −100 pb sur la poche obligataire (duration et convexité). Résultat par scénario en % et en FCFA, lignes les plus touchées.
 - **Suivi réel des recommandations** (`services/tracking.ts`, table `recommended_portfolios`) : un conseil ou une cible « suivi » est figé à sa date (quantités au cours du jour, frais d'entrée déduits) et valorisé chaque séance sur les cours ajustés (dividendes et opérations inclus), net des frais de sortie, contre le BRVM Composite et le BRVM 30 : performance nette, écart, annualisé, perte maximale, volatilité, part des séances gagnantes. Page Performance ; routes `GET/POST /api/tracking`, `GET/DELETE /api/tracking/:id`.
+
+### Rendement durable du dividende
+
+Le rendement retenu par le conseiller, le score de qualité et les modèles n'est plus le dernier dividende rapporté au cours, mais la **médiane des dividendes nets des trois derniers exercices payés** ; sans historique, un rendement au-delà de 15 % est plafonné. Un dividende exceptionnel (Filtisac 2026 : ≈ 1 727 FCFA net pour un cours de 1 700, soit 102 % au bulletin) est signalé (`exceptional`) et n'est pas extrapolé dans les rendements attendus.
+
+## 23. Portefeuilles modèles par profil (`server/src/services/models.ts`)
+
+Quatre portefeuilles de référence tenus comme une gestion modèle, à la manière des portefeuilles modèles des grands gestionnaires :
+
+| Modèle | Objectif | Horizon | Tolérance | Lignes max. | Poids max. |
+| --- | --- | --- | --- | --- | --- |
+| Prudent | équilibré | 36 mois | 2 | 8 | 20 % |
+| Équilibré | équilibré | 48 mois | 3 | 8 | 25 % |
+| Dynamique | croissance | 60 mois | 4 | 7 | 25 % |
+| Revenus | revenus | 60 mois | 3 | 8 | 20 % |
+
+- **Calcul** : le guichet de conseil (section 7) sur un capital nominal de 10 M FCFA, avec Black-Litterman, covariance factorielle, limite de perte, plafonds de liquidité, coûts et poche obligataire (sections 9, 13, 20, 22). La version retient les lignes actions (poids du capital), les obligations, la réserve de liquidités, les métriques (rendement brut et net, volatilité, Sharpe, dividende, CVaR et limite, modèle de risque), la lecture du moteur et quatre scénarios de résistance.
+- **Proposition et publication** : le moteur calcule une proposition deux minutes après le démarrage puis chaque jour ouvré après la clôture (`MODELS_AUTO=0` désactive). Un modèle jamais publié l'est automatiquement (statut « auto ») ; ensuite seul l'analyste publie, avec une note : la proposition devient la version de référence (numéro de version incrémenté, historique dans `model_versions`). La **dérive** entre version publiée et proposition est donnée en opérations hors bande (section 22) et en écart de rendement net.
+- **Suivi** : chaque publication crée un portefeuille suivi (section 22, type « modèle ») : performance nette de frais contre BRVM Composite et BRVM 30 depuis la publication, par version.
+- **Plan pour mon portefeuille** : rapprochement du portefeuille détenu (section 12) d'un modèle par bandes de non-échange sur les actions (opérations, frais, rotation, prochaine revue), écart de la poche obligataire et liquidités.
+- Routes : `GET /api/models`, `GET /api/models/:key` (versions, série), `GET /api/models/:key/plan`, `POST /api/models/recompute` et `POST /api/models/:key/publish` (analyste). Page « Portefeuilles modèles ».

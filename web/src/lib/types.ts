@@ -699,3 +699,24 @@ export interface ValuationMetrics { annualPeriod: string | null; latestPeriod: s
 export interface CompanyFundamentals { symbol: string; name: string; price: number; records: FinancialRecord[]; metrics: ValuationMetrics }
 export interface FundamentalsResponse { items: CompanyFundamentals[]; status: { records: number; companies: number; auto: number; lastScan: { at: number; inserted: number; fetched: number; failed: number } | null } }
 export interface PanelSummary { asOf: number | null; computedAt: number | null; symbols: number; stats: { horizon: Horizon; samples: number; testSamples: number; testMaePct: number | null; naiveMaePct: number | null; hitRate: number | null; lambda: number }[]; ranking: { symbol: string; name: string; relPct: number; top: string | null }[] }
+
+export interface ModelLine { symbol: string; name: string; sector: string; weightPct: number; dividendYield: number; expectedReturnPct: number; rationale: string }
+export interface ModelBond { code: string; name: string; issuer: string; weightPct: number; ytmPct: number; durationYears: number; maturityDate: string; taxExempt: boolean }
+export interface ModelVersion {
+  generatedAt: number; capital: number; lines: ModelLine[]; bonds: ModelBond[]; equityPct: number; bondPct: number; cashPct: number;
+  metrics: { expectedAnnualReturnPct: number; netExpectedAnnualReturnPct: number; volatilityPct: number; sharpe: number; dividendYieldPct: number; cvar95_1mPct: number | null; cvarLimitPct: number | null; riskModel: string; bondYieldPct: number; bondDurationYears: number; method: string };
+  summary: string[]; warnings: string[]; stress: { key: string; label: string; totalPct: number }[];
+}
+export interface RebalanceTrade { symbol: string; side: "acheter" | "vendre"; quantity: number; amount: number; fromPct: number; toPct: number; bandPct: number; cost: number }
+export interface ModelView {
+  key: "prudent" | "equilibre" | "dynamique" | "revenus"; label: string; description: string; version: number; status: "auto" | "validated"; note: string | null;
+  publishedAt: number | null; proposedAt: number | null; current: ModelVersion | null; proposal: ModelVersion | null;
+  drift: { trades: RebalanceTrade[]; withinBand: { symbol: string; currentPct: number; targetPct: number; bandPct: number }[]; turnoverPct: number; returnGapPct: number } | null;
+  trackingId: number | null; performance: TrackedStats | null;
+}
+export interface ModelDetail extends ModelView { versions: { version: number; publishedAt: number; note: string | null; trackingId: number | null; performance: TrackedStats | null }[]; series: TrackedView["series"] }
+export interface ModelPlan {
+  key: string; total: number; equityPct: number; bondPct: number; cashPct: number; target: { equityPct: number; bondPct: number; cashPct: number };
+  plan: { trades: RebalanceTrade[]; withinBand: { symbol: string; currentPct: number; targetPct: number; bandPct: number }[]; turnoverPct: number; estimatedCost: number; nextReview: number };
+  bondSuggestions: { code: string; name: string; weightPct: number; amount: number }[]; verdict: string;
+}

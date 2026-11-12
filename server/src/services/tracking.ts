@@ -11,7 +11,7 @@ import { INSTRUMENT_MAP } from "../data/instruments.js";
 import { feeSchedule, oneWayCostRate, tradeCost } from "../engine/costs.js";
 import type { MarketService } from "./market.js";
 
-export type TrackedKind = "conseil" | "cible" | "manuel";
+export type TrackedKind = "conseil" | "cible" | "manuel" | "modele";
 
 export interface TrackedLine { symbol: string; weightPct: number; price: number; quantity: number; amount: number }
 
@@ -90,6 +90,18 @@ export class TrackingService {
 
   private row(r: Record<string, unknown>): TrackedPortfolio {
     return { id: Number(r.id), kind: r.kind as TrackedKind, label: String(r.label), createdAt: Number(r.created_at), startTs: Number(r.start_ts), capital: Number(r.capital), cash: Number(r.cash), entryCost: Number(r.entry_cost), lines: JSON.parse(String(r.lines)) as TrackedLine[], sourceId: r.source_id == null ? null : Number(r.source_id) };
+  }
+
+  /** Statistiques d'un portefeuille suivi, sans contrôle de propriétaire (performance des modèles, publique sur la plateforme). */
+  statsById(id: number): TrackedStats | null {
+    const r = this.db.prepare("SELECT * FROM recommended_portfolios WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return r ? this.valuation(this.row(r)).stats : null;
+  }
+
+  /** Série d'un portefeuille suivi, sans contrôle de propriétaire. */
+  seriesById(id: number): TrackedView["series"] {
+    const r = this.db.prepare("SELECT * FROM recommended_portfolios WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return r ? this.valuation(this.row(r)).series : [];
   }
 
   list(userId: number): (TrackedPortfolio & { stats: TrackedStats })[] {

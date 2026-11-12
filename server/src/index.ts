@@ -21,6 +21,7 @@ import { ForecastService } from "./services/forecast.js";
 import { LearningService } from "./services/learning.js";
 import { HoldingsService } from "./services/holdings.js";
 import { TrackingService } from "./services/tracking.js";
+import { ModelPortfolioService } from "./services/models.js";
 import { BondService } from "./services/bonds.js";
 import { DocumentService } from "./services/documents.js";
 import { QualityService } from "./services/quality.js";
@@ -98,7 +99,10 @@ async function main(): Promise<void> {
   const evaluation = new EvaluationService(db, market);
   evaluation.attachExtras(panel.extrasAt);
   const tracking = new TrackingService(db, market);
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking };
+  const models = new ModelPortfolioService(db, market, advisory);
+  models.attach(tracking, holdings, bonds);
+  models.start();
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking, models };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

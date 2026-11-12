@@ -51,10 +51,17 @@ export interface DividendView {
   updatedAt: number;
 }
 
+/** Plafond du rendement retenu quand un seul dividende est connu (%). */
+export const SUSTAINABLE_YIELD_CAP = 15;
+
 export interface DividendInfo {
   last: DividendView | null;
   /** rendement net sur le dernier dividende connu (%), null si inconnu */
   yieldPct: number | null;
+  /** rendement retenu par les modèles : médiane des derniers exercices, ou dernier dividende plafonné */
+  sustainableYieldPct: number | null;
+  /** le dernier dividende paraît exceptionnel (très au-dessus de la médiane ou > 15 % sans historique) */
+  exceptional: boolean;
   /** prochain détachement connu (dans le futur) */
   next: { exDate: number; amount: number; fiscalYear: number; status: DividendStatus } | null;
   /** nombre d'exercices renseignés */
@@ -332,17 +339,34 @@ export class CorporateService extends EventEmitter {
     const today = toDayTs(Date.now())!;
     const last = list.find((d) => d.netEstimated != null && (d.exDate == null || d.exDate <= today)) ?? null;
     const upcoming = list.filter((d) => d.exDate != null && d.exDate > today && d.netEstimated != null).sort((a, b) => a.exDate! - b.exDate!)[0] ?? null;
+    const yieldPct = last && price > 0 ? Math.round((last.netEstimated! / price) * 1000) / 10 : null;
+    // rendement durable : médiane des dividendes nets des trois derniers exercices payés (un dividende
+    // exceptionnel ne doit pas être extrapolé) ; sans historique, un rendement au-delà de 15 % est plafonné
+    const paid = list.filter((d) => d.netEstimated != null && (d.exDate == null || d.exDate <= today)).sort((a, b) => b.fiscalYear - a.fiscalYear).slice(0, 3).map((d) => d.netEstimated!);
+    let sustainable = yieldPct;
+    let exceptional = false;
+    if (price > 0 && paid.length >= 2) {
+      const sorted = [...paid].sort((a, b) => a - b);
+      const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+      sustainable = Math.round((median / price) * 1000) / 10;
+      exceptional = yieldPct != null && yieldPct > sustainable * 2 && yieldPct > 12;
+    } else if (yieldPct != null && yieldPct > SUSTAINABLE_YIELD_CAP) {
+      sustainable = SUSTAINABLE_YIELD_CAP;
+      exceptional = true;
+    }
     return {
       last,
-      yieldPct: last && price > 0 ? Math.round((last.netEstimated! / price) * 1000) / 10 : null,
+      yieldPct,
+      sustainableYieldPct: sustainable,
+      exceptional,
       next: upcoming ? { exDate: upcoming.exDate!, amount: upcoming.netEstimated!, fiscalYear: upcoming.fiscalYear, status: upcoming.status } : null,
       years: list.length,
     };
   }
 
-  /** Rendement net réel (%) d'après le dernier dividende connu, sinon null. */
+  /** Rendement net durable (%) : médiane des derniers exercices, ou dernier dividende plafonné s'il paraît exceptionnel ; null sans dividende connu. */
   yieldFor(symbol: string, price: number): number | null {
-    return this.dividendInfo(symbol, price).yieldPct;
+    return this.dividendInfo(symbol, price).sustainableYieldPct;
   }
 
   /**
