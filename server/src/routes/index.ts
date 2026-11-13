@@ -17,6 +17,7 @@ import type { HoldingsService } from "../services/holdings.js";
 import type { TrackingService } from "../services/tracking.js";
 import type { ModelPortfolioService } from "../services/models.js";
 import type { DataQualityService } from "../services/dataquality.js";
+import type { AttributionService } from "../services/attribution.js";
 import type { BondService } from "../services/bonds.js";
 import type { DocumentService } from "../services/documents.js";
 import type { QualityService } from "../services/quality.js";
@@ -62,6 +63,7 @@ export interface Services {
   tracking: TrackingService;
   models: ModelPortfolioService;
   dataQuality: DataQualityService;
+  attribution: AttributionService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -826,6 +828,25 @@ export function buildRouter(s: Services): Router {
       res.json(s.advisory.generateReport({ ...body, holdings: body.holdings?.map((h) => ({ ...h, symbol: h.symbol.toUpperCase() })) }));
     }),
   );
+  // ---- Attribution de performance ----
+  r.get("/attribution/holdings", guard, asyncHandler((req, res) => {
+    const period = (["1M", "3M", "6M", "YTD", "1Y"] as const).find((p) => p === req.query.period) ?? "3M";
+    res.json(s.attribution.forHoldings(req.auth!.sub, period));
+  }));
+  r.get("/attribution/tracking/:id", guard, (req, res) => {
+    const rep = s.attribution.forTrackedId(req.auth!.sub, Number(req.params.id));
+    if (!rep) return res.status(404).json({ error: "Portefeuille suivi inconnu" });
+    res.json(rep);
+  });
+  r.get("/attribution/models/:key", guard, (req, res) => {
+    const m = s.models.view(req.params.key);
+    if (!m) return res.status(404).json({ error: "Modèle inconnu" });
+    if (m.trackingId == null) return res.status(404).json({ error: "Modèle non publié" });
+    const rep = s.attribution.forTrackingAnyId(m.trackingId);
+    if (!rep) return res.status(404).json({ error: "Suivi introuvable" });
+    res.json({ ...rep, subject: { kind: "tracking", id: m.trackingId, label: `Modèle ${m.label} v${m.version}` } });
+  });
+
   // ---- Qualité des données et rapport du jour ----
   r.get("/quality", guard, (_req, res) => res.json({ run: s.dataQuality.latestRun(), history: s.dataQuality.scoreHistory(30), status: s.dataQuality.status(), labels: CHECK_LABELS }));
   r.post(

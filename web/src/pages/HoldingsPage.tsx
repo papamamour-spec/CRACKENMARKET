@@ -7,6 +7,7 @@ import { api, del, post, put } from "../lib/api";
 import { fmtDateTime, fmtFcfa, fmtNum, fmtPct, signClass } from "../lib/format";
 import { QUALITY_BAND_CLASS, type BondView, type HeldPortfolio, type HeldPosition, type PortfolioAnalysis, type QualityBand, type TrackedView } from "../lib/types";
 import { RiskPanel } from "../components/RiskPanel";
+import { AttributionPanel } from "../components/AttributionPanel";
 
 const ACTION_CLASS: Record<string, string> = { renforcer: "buy", conserver: "hold", alléger: "reduce", vendre: "sell", initier: "strong-buy", diversifier: "hold", liquidités: "hold", obligations: "buy" };
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
@@ -26,6 +27,7 @@ export function HoldingsPage() {
   const [label, setLabel] = useState("");
   const [importText, setImportText] = useState("");
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
+  const [attrPeriod, setAttrPeriod] = useState<"1M" | "3M" | "6M" | "YTD" | "1Y">("3M");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState(true);
@@ -299,6 +301,15 @@ export function HoldingsPage() {
             </div>
           )}
 
+          {a.lines.length > 0 && (
+            <div className="card">
+              <div className="card-head">
+                <div><h2>D'où vient la performance</h2><span className="muted" style={{ fontSize: 12 }}>Attribution contre le BRVM Composite, quantités actuelles tenues constantes sur la période : allocation sectorielle, sélection de titres, liquidités, dividendes, contribution de chaque ligne.</span></div>
+                <div className="seg">{(["1M", "3M", "6M", "YTD", "1Y"] as const).map((p) => <button key={p} className={attrPeriod === p ? "active" : ""} onClick={() => setAttrPeriod(p)}>{p === "YTD" ? "Année" : p}</button>)}</div>
+              </div>
+              <AttributionPanel url={`/attribution/holdings?period=${attrPeriod}`} />
+            </div>
+          )}
           {a.riskReport && (
             <div className="card">
               <div className="card-head"><div><h2>Risque, liquidité, coûts et tests de résistance</h2><span className="muted" style={{ fontSize: 12 }}>Portefeuille actuel : covariance factorielle (marché, taille, rendement, secteurs), perte moyenne des pires mois, délai de sortie de chaque ligne, scénarios historiques et chocs.</span></div></div>
