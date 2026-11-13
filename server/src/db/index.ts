@@ -480,6 +480,32 @@ function migrate(d: DB): void {
       updated_at INTEGER NOT NULL,
       UNIQUE (symbol, period)
     );
+    CREATE TABLE IF NOT EXISTS document_bodies (
+      url TEXT PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source TEXT NOT NULL,
+      published_at INTEGER,
+      text TEXT NOT NULL,             -- texte extrait (PDF ou HTML), tronqué à 60 000 caractères
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_bodies_symbol ON document_bodies(symbol, fetched_at);
+    CREATE TABLE IF NOT EXISTS llm_extractions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT,                        -- NULL pour un texte collé
+      symbol TEXT,
+      model TEXT NOT NULL,
+      ts INTEGER NOT NULL,
+      status TEXT NOT NULL,            -- ok | vide | refus | erreur
+      result TEXT,                     -- JSON structuré renvoyé par le modèle
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      periods_saved INTEGER NOT NULL DEFAULT 0,
+      events_saved INTEGER NOT NULL DEFAULT 0,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_extractions_ts ON llm_extractions(ts);
+    CREATE INDEX IF NOT EXISTS idx_llm_extractions_url ON llm_extractions(url);
     CREATE TABLE IF NOT EXISTS evaluation_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at INTEGER NOT NULL,

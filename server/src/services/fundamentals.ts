@@ -4,7 +4,7 @@ import type { DB } from "../db/index.js";
 import { INSTRUMENTS, INSTRUMENT_MAP } from "../data/instruments.js";
 import { parseFinancialNotice, parsePublicationDate, valuationMetrics, type FinancialRecord, type ValuationMetrics } from "../engine/fundamentals.js";
 import type { MarketService } from "./market.js";
-import type { DocumentService } from "./documents.js";
+import type { CompanyDocument, DocumentService } from "./documents.js";
 import type { NewsService } from "./news.js";
 import type { QualityService } from "./quality.js";
 import { pdfToText, type BocService } from "./boc.js";
@@ -259,9 +259,11 @@ export class FundamentalsService extends EventEmitter {
         let text = `${d.title}. ${d.summary ?? ""}`;
         if (fetchBodies && !seen.has(d.url) && !done.has(d.url) && fetched + failed < maxFetch && !isDisallowed(d.url)) {
           try {
-            text += ` ${await this.fetchBody(d.url)}`;
+            const body = await this.fetchBody(d.url);
+            text += ` ${body}`;
             fetched++;
             done.add(d.url);
+            this.saveBody(d, body);
           } catch {
             failed++;
           }
@@ -275,7 +277,17 @@ export class FundamentalsService extends EventEmitter {
       for (const sym of item.symbols) if (this.ingestText(sym, `${item.title}. ${item.summary ?? ""}`, item.url, item.source, item.published_at)) inserted++;
     }
     this.lastScan = { at: Date.now(), inserted, fetched, failed };
+    // corps nouvellement conservés : la lecture par modèle de langage peut les analyser
+    if (fetched) this.emit("bodies", fetched);
     return { inserted, fetched, failed };
+  }
+
+  /** Conserve le texte d'un document (lu une seule fois) pour les lectures ultérieures, dont celle par modèle de langage. */
+  private saveBody(d: CompanyDocument, text: string): void {
+    if (text.trim().length < 200) return;
+    this.db
+      .prepare("INSERT INTO document_bodies(url, symbol, title, source, published_at, text, fetched_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET text=excluded.text, fetched_at=excluded.fetched_at")
+      .run(d.url, d.symbol, d.title, d.source, d.published_at, text, Date.now());
   }
 
   private sharesHint(symbol: string): number | null {
