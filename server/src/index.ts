@@ -32,6 +32,7 @@ import { CorporateService } from "./services/corporate.js";
 import { BocService } from "./services/boc.js";
 import { EvaluationService } from "./services/evaluation.js";
 import { FundamentalsService } from "./services/fundamentals.js";
+import { LlmExtractService } from "./services/llmextract.js";
 import { PanelService } from "./services/panel.js";
 import { HistoryService } from "./services/history.js";
 import { attachWebSocket } from "./ws.js";
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
   fundamentals.attach(documents, news, quality);
   fundamentals.attachBoc(boc);
   fundamentals.start();
+  const llm = new LlmExtractService(db, fundamentals);
   history.attachQuality(quality);
   history.start();
   const panel = new PanelService(market);
@@ -108,7 +110,9 @@ async function main(): Promise<void> {
   dataQuality.attach({ boc, corporate, bonds, fundamentals, quality, news, documents, history, holdings, models });
   dataQuality.start();
   const attribution = new AttributionService(market, tracking, holdings);
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking, models, dataQuality, attribution };
+  llm.attach(radar);
+  llm.start();
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking, models, dataQuality, attribution, llm };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

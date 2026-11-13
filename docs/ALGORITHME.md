@@ -294,3 +294,17 @@ D'où vient la performance d'un portefeuille suivi (conseil, cible, modèle, dep
 - **Marché et spécifique** : bêta du portefeuille contre l'indice sur la période ; contribution du marché = bêta × R_b, le reste est propre au portefeuille.
 
 Routes `GET /api/attribution/holdings?period=1M|3M|6M|YTD|1Y`, `GET /api/attribution/tracking/:id`, `GET /api/attribution/models/:key`. Panneau « D'où vient la performance » sur Performance (portefeuilles suivis), Portefeuilles modèles et Analyser mon portefeuille.
+
+## 26. Lecture des publications par modèle de langage (`server/src/services/llmextract.ts`)
+
+Le lecteur à règles du §18 ne reconnaît que des formulations connues (« chiffre d'affaires de … milliards »). Ici, le **texte complet** d'une publication, conservé dans la table `document_bodies` au moment où la lecture des fondamentaux télécharge le corps d'un document (PDF ou HTML, 60 000 caractères au plus), est soumis à Claude avec un **schéma de sortie imposé** (sortie structurée, schéma Zod) :
+
+- **Périodes** : exercice, semestre ou trimestre, chiffre d'affaires (ou produit net bancaire), résultat net part du groupe, capitaux propres, nombre d'actions, bénéfice et dividende par action, croissances. Montants en FCFA complets ; le modèle doit signaler dans `warnings` une unité ou un périmètre ambigu plutôt que deviner.
+- **Événements** : dividende proposé ou voté, résultats publiés, avertissement (perte, baisse marquée), changement de direction, opération sur le capital, assemblée, offre publique.
+- Résumé en trois phrases, niveau de confiance, date de publication, symbole reconnu parmi la cote fournie.
+
+Chaque période est enregistrée dans les fondamentaux (§18) avec le statut **auto** et la source « modèle de langage (modèle) » : une lecture automatique complète les champs vides mais **ne remplace jamais une saisie d'analyste**. Les événements alimentent le radar des événements, dédoublonnés. Chaque appel est journalisé (`llm_extractions` : document, statut ok / vide / refus / erreur, résultat, jetons) ; un document n'est soumis qu'une fois, sauf erreur technique (repris au passage suivant).
+
+Garde-fous : sans `ANTHROPIC_API_KEY` le service est désactivé et le dit (le lecteur à règles reste actif) ; budget quotidien `LLM_EXTRACT_DAILY_MAX` (25 lectures par défaut) ; invite système mise en cache ; repli serveur activé (si le modèle demandé est indisponible, l'API bascule sur un modèle de repli et la réponse indique le modèle réellement utilisé). Ordre de grandeur du coût avec Claude Opus 5.5 : une publication de 60 000 caractères vaut environ 15 000 jetons d'entrée, soit de l'ordre de 0,08 $ par document, 2 $ par jour au budget par défaut.
+
+Passage automatique deux minutes après le démarrage, après chaque téléchargement de corps par la lecture des fondamentaux, puis toutes les six heures (`LLM_AUTO=0` désactive). Routes `GET /api/market/fundamentals/llm` (statut, dernières lectures), `POST /api/market/fundamentals/llm/run {limit}` (passage à la demande), `POST /api/market/fundamentals/llm/extract {text, symbol?, save?}` (texte collé, aperçu ou enregistrement), réservées aux analystes. Carte « Lecture par modèle de langage » dans Données officielles › Fondamentaux.
