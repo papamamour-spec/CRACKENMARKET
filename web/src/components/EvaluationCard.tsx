@@ -107,6 +107,27 @@ export function EvaluationCard({ analyst }: { analyst: boolean }) {
               </tbody>
             </table>
           </div>
+          {cur?.signals && cur.signals.length > 0 && (
+            <div style={{ marginTop: 12, overflowX: "auto" }}>
+              <h4>Familles de signaux événementiels à {HORIZON_LABEL[cur.horizon]} : corrélation de rang avec le rendement réalisé</h4>
+              <table>
+                <thead><tr><th className="left">Signal</th><th>IC de rang</th><th>t</th><th>IC &gt; 0</th><th>Dates</th><th>Actif</th></tr></thead>
+                <tbody>
+                  {cur.signals.map((sg) => (
+                    <tr key={sg.key}>
+                      <td className="left">{sg.label}</td>
+                      <td className={`mono ${(sg.ic.mean ?? 0) > 0 ? "up" : sg.ic.mean != null ? "down" : "muted"}`}>{sg.ic.mean != null ? sg.ic.mean.toFixed(3) : "—"}</td>
+                      <td className={`mono ${Math.abs(sg.ic.tStat ?? 0) >= 2 ? "" : "muted"}`}>{sg.ic.tStat != null ? sg.ic.tStat.toFixed(1) : "—"}</td>
+                      <td className="mono muted">{sg.ic.positiveShare != null ? `${Math.round(sg.ic.positiveShare * 100)} %` : "—"}</td>
+                      <td className="mono muted">{sg.ic.dates}</td>
+                      <td className="mono muted">{Math.round(sg.activeShare * 100)} %</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted" style={{ fontSize: 11 }}>Chaque famille est mesurée seule, sur les dates où elle varie entre les valeurs ; « Actif » est la part des observations où le signal est non nul (un signal rare est mesuré sur peu de dates). Un t au-delà de 2 est significatif ; le poids de chaque famille dans la prévision est appris par le modèle de panel.</p>
+            </div>
+          )}
           {cur && (
             <div className="grid grid-2" style={{ gap: 14, marginTop: 12 }}>
               <div style={{ minWidth: 0, overflowX: "auto" }}>

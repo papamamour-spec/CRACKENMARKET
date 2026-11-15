@@ -6,6 +6,8 @@ import type { Candle } from "../engine/indicators.js";
 import type { MarketService } from "./market.js";
 import type { CorporateService } from "./corporate.js";
 import type { FundamentalsService } from "./fundamentals.js";
+import type { BocService } from "./boc.js";
+import { bookPressure, dividendWindow, postPublicationDrift, type BookSession, type DividendDate, type Publication } from "../engine/events.js";
 
 const TTL_MS = 6 * 3600_000;
 const DAY = 86_400_000;
@@ -32,16 +34,33 @@ export class PanelService extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private corporate: CorporateService | null = null;
   private fundamentals: FundamentalsService | null = null;
+  private boc: BocService | null = null;
+  /** données événementielles par valeur (publications, détachements, carnet), rechargées à chaque changement */
+  private eventCache = new Map<string, { pubs: Publication[]; divs: DividendDate[]; book: BookSession[] }>();
 
   constructor(private readonly market: MarketService) {
     super();
   }
 
-  attach(corporate: CorporateService | null, fundamentals: FundamentalsService | null): void {
+  attach(corporate: CorporateService | null, fundamentals: FundamentalsService | null, boc: BocService | null = null): void {
     this.corporate = corporate;
     this.fundamentals = fundamentals;
-    corporate?.on("change", () => { this.computedAt = 0; });
-    fundamentals?.on("change", () => { this.computedAt = 0; });
+    this.boc = boc;
+    corporate?.on("change", () => { this.computedAt = 0; this.eventCache.clear(); });
+    fundamentals?.on("change", () => { this.computedAt = 0; this.eventCache.clear(); });
+    boc?.on("boc", () => { this.eventCache.clear(); });
+  }
+
+  /** Publications, détachements et séances du carnet d'une valeur (toutes dates ; le filtrage par date se fait au calcul). */
+  private events(symbol: string): { pubs: Publication[]; divs: DividendDate[]; book: BookSession[] } {
+    const cached = this.eventCache.get(symbol);
+    if (cached) return cached;
+    const pubs = this.fundamentals?.publications(symbol) ?? [];
+    const divs: DividendDate[] = (this.corporate?.dividends(symbol) ?? []).filter((d) => d.exDate != null).map((d) => ({ exDate: d.exDate! }));
+    const book: BookSession[] = (this.boc?.stats(symbol, 2000) ?? []).map((x) => ({ ts: x.ts, imbalance: x.imbalance, reserved: x.reserved === "up" ? "up" : x.reserved === "down" ? "down" : null }));
+    const e = { pubs, divs, book };
+    this.eventCache.set(symbol, e);
+    return e;
   }
 
   start(): void {
@@ -66,7 +85,8 @@ export class PanelService extends EventEmitter {
       if (next) daysToExDividend = Math.round((next.exDate! - ts) / DAY);
     }
     const earningsYieldPct = this.fundamentals?.earningsYieldAt(symbol, ts, price) ?? null;
-    return { dividendYieldPct, earningsYieldPct, daysToExDividend };
+    const ev = this.events(symbol);
+    return { dividendYieldPct, earningsYieldPct, daysToExDividend, pubDrift: postPublicationDrift(ev.pubs, ts), divWindow: dividendWindow(ev.divs, ts), book5: bookPressure(ev.book, ts) };
   };
 
   private universe(): Map<string, Candle[]> {

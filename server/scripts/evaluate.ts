@@ -15,6 +15,9 @@ import { config } from "../src/config.js";
 import { INSTRUMENTS } from "../src/data/instruments.js";
 import { MarketService, ensureHistoryDepth } from "../src/services/market.js";
 import { CorporateService } from "../src/services/corporate.js";
+import { FundamentalsService } from "../src/services/fundamentals.js";
+import { BocService } from "../src/services/boc.js";
+import { PanelService } from "../src/services/panel.js";
 import { EvaluationService } from "../src/services/evaluation.js";
 import type { EvaluationReport } from "../src/engine/evaluation.js";
 
@@ -38,6 +41,14 @@ function markdown(r: EvaluationReport): string {
     lines.push(`| ${h.horizon} | ${h.n} | ${Math.round(h.hitRate * 100)} % | ${Math.round(h.baselineHitRate * 100)} % | ${h.maePct} % | ${h.naiveMaePct} % | ${Math.round(h.skill * 100)} % | ${h.ic.mean ?? "—"} | ${h.ic.tStat ?? "—"} | ${Math.round(h.coverage90 * 100)} % | ${h.brier} | ${pct(h.strategy.topK.totalReturnPct)} | ${pct(h.strategy.equalWeight.totalReturnPct)} | ${pct(h.strategy.index?.totalReturnPct)} |`);
   }
   lines.push("", ...r.verdict.map((v) => `- ${v}`), "");
+  const withSignals = r.horizons.filter((h) => h.signals?.length);
+  if (withSignals.length) {
+    lines.push("## Familles de signaux événementiels (corrélation de rang avec le rendement réalisé)", "", "| Signal | " + withSignals.map((h) => `${h.horizon} IC (t, dates, actif)`).join(" | ") + " |", "| --- | " + withSignals.map(() => "---:").join(" | ") + " |");
+    for (const sg of withSignals[0].signals!) {
+      lines.push(`| ${sg.label} | ` + withSignals.map((h) => { const x = h.signals!.find((y) => y.key === sg.key)!; return x.ic.mean == null ? "—" : `${x.ic.mean > 0 ? "+" : ""}${x.ic.mean.toFixed(3)} (t ${x.ic.tStat ?? "—"}, ${x.ic.dates}, ${Math.round(x.activeShare * 100)} %)`; }).join(" | ") + " |");
+    }
+    lines.push("");
+  }
   return lines.join("\n");
 }
 
@@ -49,8 +60,13 @@ async function main(): Promise<void> {
   const m = market as unknown as { loadOrSeedHistory(): Promise<void>; initSnapshot(i: unknown): void };
   await m.loadOrSeedHistory();
   for (const inst of INSTRUMENTS) m.initSnapshot(inst);
-  new CorporateService(db, market);
+  const corporate = new CorporateService(db, market);
+  const fundamentals = new FundamentalsService(db, market);
+  const boc = new BocService(db, market);
+  const panel = new PanelService(market);
+  panel.attach(corporate, fundamentals, boc);
   const evaluation = new EvaluationService(db, market);
+  evaluation.attachExtras(panel.extrasAt);
   const opts = { sessions: Number(arg("sessions") ?? 400), step: Number(arg("step") ?? 10), topK: Number(arg("topk") ?? 5), feePct: Number(arg("fee") ?? 1.25) };
   const t0 = Date.now();
   const report = evaluation.runSync(opts, (done, total) => process.stderr.write(`\r[evaluate] ${done}/${total} dates`));

@@ -9,6 +9,7 @@ import type { NewsService } from "./news.js";
 import type { QualityService } from "./quality.js";
 import { pdfToText, type BocService } from "./boc.js";
 import { isDisallowed, politeBytes } from "./fetchPolicy.js";
+import { surpriseFrom, type Publication } from "../engine/events.js";
 
 export interface FundamentalInput {
   symbol: string;
@@ -325,6 +326,35 @@ export class FundamentalsService extends EventEmitter {
     }
     const per = this.boc?.perAt(symbol, ts) ?? null;
     return per != null && per > 0 ? Math.round((100 / per) * 100) / 100 : null;
+  }
+
+  /**
+   * Publications datées d'une valeur pour la dérive post-publication : date connue (publication, sinon
+   * fin de période + délai habituel) et surprise (croissance du résultat net, variation du dividende
+   * par action contre l'exercice précédent). Exercices annuels et semestres.
+   */
+  publications(symbol: string): Publication[] {
+    const rows = this.db.prepare("SELECT * FROM fundamentals WHERE symbol = ? ORDER BY period_end").all(symbol.toUpperCase()) as Row[];
+    const annualDps = new Map<string, number>();
+    for (const r of rows) if (/^\d{4}$/.test(r.period) && r.dps != null) annualDps.set(r.period, r.dps);
+    const out: Publication[] = [];
+    for (const r of rows) {
+      const growth = r.net_income_growth_pct ?? (() => {
+        if (r.net_income == null) return null;
+        const prevPeriod = r.period.replace(/(\d{4})$/, (y) => String(Number(y) - 1));
+        const prev = rows.find((x) => x.period === prevPeriod);
+        return prev?.net_income != null && prev.net_income > 0 ? ((r.net_income - prev.net_income) / prev.net_income) * 100 : null;
+      })();
+      let dpsChange: number | null = null;
+      if (/^\d{4}$/.test(r.period) && r.dps != null) {
+        const prev = annualDps.get(String(Number(r.period) - 1));
+        if (prev != null && prev > 0) dpsChange = ((r.dps - prev) / prev) * 100;
+      }
+      const surprise = surpriseFrom(growth, dpsChange);
+      if (surprise == null) continue;
+      out.push({ ts: r.published_at ?? r.period_end + PUBLICATION_LAG_DAYS * DAY, surprise });
+    }
+    return out;
   }
 
   status(): { records: number; companies: number; auto: number; lastScan: ScanStatus | null } {

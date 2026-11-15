@@ -89,7 +89,7 @@ export class EvaluationService extends EventEmitter {
       }
       try {
         const panel = panelAt(u.candlesBySymbol, ts, config, this.extrasAt);
-        for (const [symbol, candles] of u.candlesBySymbol) obs.push(...observeAt(symbol, candles, u.indexByTs, ts, config, panel));
+        for (const [symbol, candles] of u.candlesBySymbol) obs.push(...observeAt(symbol, candles, u.indexByTs, ts, config, panel, this.extrasAt));
       } catch (e) {
         console.warn(`[evaluation] date ${new Date(ts).toISOString().slice(0, 10)} : ${(e as Error).message}`);
       }

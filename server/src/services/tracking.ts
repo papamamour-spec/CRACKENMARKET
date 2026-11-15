@@ -79,7 +79,10 @@ export class TrackingService {
     const cash = input.capital - invested - entryCost;
     if (cash < 0) throw new Error("Les frais d'entrée dépassent les liquidités restantes : réduisez légèrement les poids");
     const now = Date.now();
-    const startTs = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+    const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+    // un week-end ou un jour férié, les cours utilisés sont ceux de la dernière séance : le suivi part de cette séance
+    const lastSession = this.market.indexHistory(1)[0]?.ts ?? today;
+    const startTs = Math.min(today, lastSession);
     const info = this.db.prepare("INSERT INTO recommended_portfolios(user_id, kind, label, created_at, start_ts, capital, lines, cash, entry_cost, source_id) VALUES (?,?,?,?,?,?,?,?,?,?)").run(userId, input.kind, input.label.slice(0, 120), now, startTs, input.capital, JSON.stringify(lines), cash, r0(entryCost), input.sourceId ?? null);
     return this.view(userId, Number(info.lastInsertRowid))!;
   }

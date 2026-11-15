@@ -13,12 +13,17 @@
 import { rsi, sma, slopePct, type Candle } from "./indicators.js";
 import { HORIZON_DAYS, type Contribution, type Horizon } from "./forecast.js";
 import { mean, ridge, stddev } from "./linalg.js";
+import { EVENT_SIGNALS, equalWeightMarket, residualMomentum } from "./events.js";
 
 export interface PanelExtras {
   dividendYieldPct: number | null;
   earningsYieldPct: number | null;
   /** jours civils avant le prochain détachement connu, null si inconnu */
   daysToExDividend: number | null;
+  /** signaux événementiels connus à la date (engine/events.ts) ; absents = 0 */
+  pubDrift?: number | null;
+  divWindow?: number | null;
+  book5?: number | null;
 }
 
 export type ExtrasAt = (symbol: string, ts: number, price: number) => PanelExtras;
@@ -62,6 +67,8 @@ export const PANEL_FACTORS: { key: string; label: string; fmt: (v: number) => st
   { key: "divYield", label: "Rendement du dividende", fmt: (v) => `${v.toFixed(1)} %` },
   { key: "earnYield", label: "Rendement bénéficiaire (1 / PER)", fmt: (v) => `${v.toFixed(1)} %` },
   { key: "exSoon", label: "Détachement de dividende sous 30 jours", fmt: (v) => (v > 0 ? "oui" : "non") },
+  // signaux événementiels (engine/events.ts) : dérive post-publication, fenêtre de dividende, carnet officiel, momentum résiduel
+  ...EVENT_SIGNALS,
 ];
 
 interface Prepared {
@@ -72,11 +79,13 @@ interface Prepared {
   sma50: number[];
   rsi14: number[];
   byTs: Map<number, number>;
+  /** niveau du marché équipondéré aligné sur les bougies de la valeur (momentum résiduel) */
+  market: (number | null)[];
 }
 
 function prepare(symbol: string, candles: Candle[]): Prepared {
   const closes = candles.map((c) => c.close);
-  return { symbol, candles, closes, vols: candles.map((c) => c.volume), sma50: sma(closes, 50), rsi14: rsi(closes, 14), byTs: new Map(candles.map((c, i) => [c.ts, i])) };
+  return { symbol, candles, closes, vols: candles.map((c) => c.volume), sma50: sma(closes, 50), rsi14: rsi(closes, 14), byTs: new Map(candles.map((c, i) => [c.ts, i])), market: [] };
 }
 
 function rawFeatures(p: Prepared, t: number): number[] | null {
@@ -133,6 +142,10 @@ export function panelModel(universe: Map<string, Candle[]>, upTo: number | null,
   for (const p of prepared) for (const c of p.candles) all.add(c.ts);
   const timeline = [...all].sort((a, b) => a - b);
   const asOf = timeline[timeline.length - 1] ?? 0;
+  // marché équipondéré de la cote (point-in-time : construit sur les seules bougies ≤ upTo) pour le momentum résiduel
+  const mkt = equalWeightMarket(timeline, prepared.map((p) => new Map(p.candles.map((c) => [c.ts, c.close]))));
+  const mktByTs = new Map(timeline.map((ts, i) => [ts, mkt[i]]));
+  for (const p of prepared) p.market = p.candles.map((c) => mktByTs.get(c.ts) ?? null);
   const maxH = Math.max(...horizons.map((h) => HORIZON_DAYS[h]));
   const first = Math.max(0, timeline.length - 1 - lookback);
   const dates: number[] = [];
@@ -165,7 +178,7 @@ export function panelModel(universe: Map<string, Candle[]>, upTo: number | null,
     atDate.forEach((a, k) => {
       const price = a.p.closes[a.t];
       const ex = opts.extrasAt?.(a.p.symbol, ts, price) ?? { dividendYieldPct: null, earningsYieldPct: null, daysToExDividend: null };
-      const x = [...a.f, rMom21[k], rMom63[k], rVol[k], ex.dividendYieldPct ?? 0, ex.earningsYieldPct ?? 0, ex.daysToExDividend != null && ex.daysToExDividend > 0 && ex.daysToExDividend <= 30 ? 1 : 0];
+      const x = [...a.f, rMom21[k], rMom63[k], rVol[k], ex.dividendYieldPct ?? 0, ex.earningsYieldPct ?? 0, ex.daysToExDividend != null && ex.daysToExDividend > 0 && ex.daysToExDividend <= 30 ? 1 : 0, ex.pubDrift ?? 0, ex.divWindow ?? 0, ex.book5 ?? 0, residualMomentum(a.p.closes, a.p.market, a.t)];
       const y: Partial<Record<Horizon, number>> = {};
       for (const h of horizons) {
         const v = fwd[h]![k];

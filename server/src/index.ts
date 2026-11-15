@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   history.attachQuality(quality);
   history.start();
   const panel = new PanelService(market);
-  panel.attach(corporate, fundamentals);
+  panel.attach(corporate, fundamentals, boc);
   forecasts.attachPanel(panel);
   panel.start();
   advisory.attachQuality(quality);
