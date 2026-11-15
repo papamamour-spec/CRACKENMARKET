@@ -26,6 +26,7 @@ import type { CorporateService } from "../services/corporate.js";
 import type { BocService } from "../services/boc.js";
 import type { EvaluationService } from "../services/evaluation.js";
 import type { FundamentalsService } from "../services/fundamentals.js";
+import type { LlmExtractService } from "../services/llmextract.js";
 import type { PanelService } from "../services/panel.js";
 import type { HistoryService } from "../services/history.js";
 import type { AdvisorService } from "../services/advisor.js";
@@ -64,6 +65,7 @@ export interface Services {
   models: ModelPortfolioService;
   dataQuality: DataQualityService;
   attribution: AttributionService;
+  llm: LlmExtractService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -480,6 +482,11 @@ export function buildRouter(s: Services): Router {
 
   // ---------- Fondamentaux et modèle de panel ----------
   r.get("/market/fundamentals", (_req, res) => res.json({ items: s.fundamentals.all(), status: s.fundamentals.status() }));
+  // lecture des publications par modèle de langage (avant la route par symbole)
+  r.get("/market/fundamentals/llm", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    res.json(s.llm.status());
+  });
   r.get("/market/fundamentals/:symbol", (req, res) => {
     const symbol = req.params.symbol.toUpperCase();
     if (!INSTRUMENT_MAP.has(symbol)) return res.status(404).json({ error: "Valeur inconnue" });
@@ -509,6 +516,24 @@ export function buildRouter(s: Services): Router {
     asyncHandler(async (req, res) => {
       if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
       res.json({ ...(await s.fundamentals.scan(!!req.body?.fetch)), status: s.fundamentals.status() });
+    }),
+  );
+  r.post(
+    "/market/fundamentals/llm/run",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ limit: z.number().int().min(1).max(50).optional() }).parse(req.body ?? {});
+      res.json({ ...(await s.llm.run(body.limit ?? 10)), status: s.llm.status() });
+    }),
+  );
+  r.post(
+    "/market/fundamentals/llm/extract",
+    guard,
+    asyncHandler(async (req, res) => {
+      if (!isAnalyst(req)) throw Object.assign(new Error("Réservé aux analystes"), { status: 403 });
+      const body = z.object({ text: z.string().min(50).max(200000), symbol: z.string().max(12).optional().nullable(), save: z.boolean().optional() }).parse(req.body);
+      res.json({ extraction: await s.llm.extract(body.text, { symbol: body.symbol ?? null, source: "texte collé", save: body.save ?? false }), status: s.llm.status() });
     }),
   );
   r.delete("/market/fundamentals/:id", guard, (req, res) => {

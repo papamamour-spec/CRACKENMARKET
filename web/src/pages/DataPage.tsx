@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, del, post } from "../lib/api";
 import { compact, fmtDate, fmtDateTime, fmtNum, fmtPct, signClass } from "../lib/format";
-import { ACTION_KIND_LABEL, type BocStatus, type CollectorsStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView, type FundamentalsResponse, type HistoryStatus } from "../lib/types";
+import { ACTION_KIND_LABEL, type BocStatus, type CollectorsStatus, type CorporateActionView, type CorporateStatus, type DailyStat, type DividendView, type FundamentalsResponse, type HistoryStatus, type LlmExtractionRow, type LlmStatus } from "../lib/types";
 import { useAuth } from "../hooks/useAuth";
 import { useMarket } from "../hooks/useMarket";
 
@@ -37,6 +37,11 @@ export function DataPage() {
   const [funds, setFunds] = useState<FundamentalsResponse | null>(null);
   const [fundForm, setFundForm] = useState({ symbol: "SNTS", period: String(new Date().getUTCFullYear() - 1), revenue: "", netIncome: "", equity: "", shares: "", eps: "", dps: "", publishedAt: "", url: "" });
   const [fundText, setFundText] = useState("");
+  // lecture par modèle de langage
+  const [llm, setLlm] = useState<LlmStatus | null>(null);
+  const [llmText, setLlmText] = useState("");
+  const [llmSymbol, setLlmSymbol] = useState("");
+  const [llmPreview, setLlmPreview] = useState<LlmExtractionRow | null>(null);
   const [filter, setFilter] = useState("");
 
   const symbols = useMemo(() => [...quotes.keys()].sort(), [quotes]);
@@ -48,7 +53,7 @@ export function DataPage() {
   const loadCorp = () => api<{ actions: CorporateActionView[]; dividends: DividendView[]; status: CorporateStatus }>("/market/corporate").then(setCorp).catch(() => {});
   const loadFunds = () => api<FundamentalsResponse>("/market/fundamentals").then(setFunds).catch(() => {});
   const loadCollectors = () => { api<CollectorsStatus>("/market/collectors").then(setCollectors).catch(() => {}); api<HistoryStatus>("/market/history-status").then(setHistStatus).catch(() => {}); };
-  useEffect(() => { loadBoc(); loadCorp(); loadFunds(); loadCollectors(); const t = setInterval(loadCollectors, 20000); return () => clearInterval(t); }, []);
+  useEffect(() => { loadBoc(); loadCorp(); loadFunds(); loadLlm(); loadCollectors(); const t = setInterval(loadCollectors, 20000); return () => clearInterval(t); }, []);
   const refreshHistory = () => run(async () => {
     const r = await post<{ lastRun: HistoryStatus["lastRun"] }>("/market/history-status/refresh", {});
     loadCollectors();
@@ -75,6 +80,22 @@ export function DataPage() {
     setFundText("");
     await loadFunds();
     return `${r.imported.length} période(s) importée(s)${r.rejected.length ? ` · ${r.rejected.length} ligne(s) rejetée(s)` : ""}.`;
+  });
+  const loadLlm = () => api<LlmStatus>("/market/fundamentals/llm").then(setLlm).catch(() => setLlm(null));
+  const runLlm = () => run(async () => {
+    const r = await post<{ processed: number; saved: number; failed: number; skipped: string | null; status: LlmStatus }>("/market/fundamentals/llm/run", { limit: 10 });
+    setLlm(r.status);
+    await loadFunds();
+    return r.skipped ? `Lecture non lancée : ${r.skipped}.` : `${r.processed} publication(s) lue(s) par le modèle · ${r.saved} enregistrée(s)${r.failed ? ` · ${r.failed} en erreur` : ""}.`;
+  });
+  const extractLlm = (save: boolean) => run(async () => {
+    const r = await post<{ extraction: LlmExtractionRow; status: LlmStatus }>("/market/fundamentals/llm/extract", { text: llmText, symbol: llmSymbol || null, save });
+    setLlm(r.status);
+    setLlmPreview(r.extraction);
+    if (save) { setLlmText(""); await loadFunds(); }
+    const x = r.extraction;
+    if (x.status === "erreur" || x.status === "refus") return `Lecture impossible : ${x.error ?? x.status}.`;
+    return save ? `${x.periodsSaved} période(s) et ${x.eventsSaved} événement(s) enregistrés${x.error ? ` · ${x.error}` : ""}.` : `${x.result?.periods.length ?? 0} période(s) et ${x.result?.events.length ?? 0} événement(s) lus (aperçu, rien d'enregistré).`;
   });
   const scanFunds = (fetch: boolean) => run(async () => {
     const r = await post<{ inserted: number; fetched: number; failed: number }>("/market/fundamentals/scan", { fetch });
@@ -362,6 +383,49 @@ export function DataPage() {
             {funds && funds.items.length > 0 && <p className="muted" style={{ fontSize: 11 }}>Montants en FCFA. Le rendement bénéficiaire (1 / PER) connu à chaque date entre dans le modèle de panel ; une lecture automatique (statut « auto ») ne remplace jamais une saisie d'analyste.</p>}
           </div>
           <div className="grid">
+            <div className="card">
+              <div className="card-head">
+                <h3>Lecture par modèle de langage</h3>
+                <button className="btn sm" disabled={busy || !llm?.enabled || !llm?.pending} onClick={runLlm} title="Soumet au modèle les publications téléchargées et non encore lues (10 au plus par passage)">Lire {llm?.pending ? `${Math.min(10, llm.pending)} publication(s)` : "les publications"}</button>
+              </div>
+              {llm ? (
+                <>
+                  <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                    {llm.enabled ? <><b className="up">Actif</b> · modèle {llm.model} · {llm.usedToday}/{llm.dailyMax} lecture(s) aujourd'hui · {llm.pending} publication(s) en attente sur {llm.bodies} conservée(s) · {fmtNum(llm.tokens.input + llm.tokens.output)} jetons au total</> : <><b className="down">Inactif</b> · {llm.reason}</>}
+                    {llm.lastRun && <> · dernier passage {fmtDateTime(llm.lastRun.at)} : {llm.lastRun.processed} lue(s), {llm.lastRun.saved} enregistrée(s){llm.lastRun.failed ? `, ${llm.lastRun.failed} en erreur` : ""}</>}
+                  </p>
+                  <div className="grid grid-2" style={{ gap: 8 }}>
+                    {field("Valeur (optionnel, sinon reconnue par le modèle)", <select value={llmSymbol} onChange={(e) => setLlmSymbol(e.target.value)}><option value="">— reconnue par le modèle —</option>{symbols.map((s) => <option key={s}>{s}</option>)}</select>)}
+                  </div>
+                  <textarea rows={5} value={llmText} onChange={(e) => setLlmText(e.target.value)} placeholder="Collez le texte d'un communiqué, d'états financiers ou d'un rapport (50 caractères au moins) : le modèle en extrait les périodes et les événements." style={{ width: "100%", marginTop: 6 }} />
+                  <div className="row" style={{ marginTop: 6 }}>
+                    <button className="btn sm" disabled={busy || !llm.enabled || llmText.trim().length < 50} onClick={() => extractLlm(false)}>Analyser (aperçu)</button>
+                    <button className="btn sm primary" disabled={busy || !llm.enabled || llmText.trim().length < 50} onClick={() => extractLlm(true)}>Analyser et enregistrer</button>
+                  </div>
+                  {llmPreview?.result && (
+                    <div style={{ marginTop: 8 }}>
+                      <p style={{ fontSize: 12, margin: "0 0 4px" }}><b>{llmPreview.result.company ?? llmPreview.symbol ?? "?"}</b>{llmPreview.symbol ? ` (${llmPreview.symbol})` : ""} · {llmPreview.result.documentKind} · confiance {llmPreview.result.confidence}{llmPreview.result.publishedAt ? ` · publié le ${llmPreview.result.publishedAt}` : ""}</p>
+                      <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>{llmPreview.result.summary}</p>
+                      {llmPreview.result.periods.length > 0 && (
+                        <div className="table-scroll"><table>
+                          <thead><tr><th className="left">Période</th><th>CA</th><th>RN</th><th>Cap. propres</th><th>BPA</th><th>Div./action</th><th>Croiss. CA</th><th>Croiss. RN</th></tr></thead>
+                          <tbody>{llmPreview.result.periods.map((p) => <tr key={p.period}><td className="left mono">{p.period}</td><td className="mono">{p.revenue != null ? compact(p.revenue) : "—"}</td><td className="mono">{p.netIncome != null ? compact(p.netIncome) : "—"}</td><td className="mono">{p.equity != null ? compact(p.equity) : "—"}</td><td className="mono">{p.eps ?? "—"}</td><td className="mono">{p.dps ?? "—"}</td><td className="mono">{p.revenueGrowthPct != null ? fmtPct(p.revenueGrowthPct, 1) : "—"}</td><td className="mono">{p.netIncomeGrowthPct != null ? fmtPct(p.netIncomeGrowthPct, 1) : "—"}</td></tr>)}</tbody>
+                        </table></div>
+                      )}
+                      {llmPreview.result.events.length > 0 && <ul style={{ fontSize: 12, margin: "6px 0 0", paddingLeft: 18 }}>{llmPreview.result.events.map((e, i) => <li key={i}><b>{e.kind}</b> · {e.title}{e.detail ? ` — ${e.detail}` : ""}{e.date ? ` (${e.date})` : ""}</li>)}</ul>}
+                      {llmPreview.result.warnings.length > 0 && <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Ambiguïtés : {llmPreview.result.warnings.join(" ; ")}</p>}
+                    </div>
+                  )}
+                  {llm.recent.length > 0 && (
+                    <div className="table-scroll" style={{ marginTop: 8 }}><table>
+                      <thead><tr><th className="left">Date</th><th className="left">Valeur</th><th>Statut</th><th>Périodes</th><th>Événements</th><th>Jetons</th><th className="left">Document</th></tr></thead>
+                      <tbody>{llm.recent.slice(0, 8).map((x) => <tr key={x.id}><td className="left mono">{fmtDateTime(x.ts)}</td><td className="left mono">{x.symbol ?? "—"}</td><td className={x.status === "ok" ? "up" : x.status === "erreur" || x.status === "refus" ? "down" : "muted"} title={x.error ?? ""}>{x.status}</td><td className="mono">{x.periodsSaved}</td><td className="mono">{x.eventsSaved}</td><td className="mono muted">{fmtNum(x.inputTokens + x.outputTokens)}</td><td className="left muted" style={{ fontSize: 11, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.url ? <a href={x.url} target="_blank" rel="noreferrer">{x.url.replace(/^https?:\/\//, "")}</a> : "texte collé"}</td></tr>)}</tbody>
+                    </table></div>
+                  )}
+                  <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Le modèle lit le texte complet des publications téléchargées (table des corps conservés) et renvoie un résultat structuré : périodes vers les fondamentaux (statut « auto », jamais par-dessus une saisie d'analyste), événements vers le radar. Budget quotidien LLM_EXTRACT_DAILY_MAX, clé ANTHROPIC_API_KEY sur le serveur.</p>
+                </>
+              ) : <p className="muted">Statut indisponible (réservé aux analystes).</p>}
+            </div>
             <div className="card">
               <h3>Saisir un exercice</h3>
               <div className="grid grid-2" style={{ gap: 8 }}>

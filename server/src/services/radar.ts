@@ -87,6 +87,11 @@ export class RadarService extends EventEmitter {
     if (this.timer) clearInterval(this.timer);
   }
 
+  /** Événement signalé par une autre lecture (modèle de langage) ; dédoublonné comme les autres. */
+  record(e: Omit<RadarEvent, "id" | "created_at">): boolean {
+    return this.insert(e) > 0;
+  }
+
   private insert(e: Omit<RadarEvent, "id" | "created_at">): number {
     const key = `${e.kind}|${e.symbol ?? ""}|${norm(e.title).slice(0, 120)}`;
     return this.db

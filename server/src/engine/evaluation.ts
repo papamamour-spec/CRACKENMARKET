@@ -17,6 +17,7 @@
  */
 import { forecast, HORIZON_DAYS, type ForecastInput, type Horizon } from "./forecast.js";
 import { panelModel, type ExtrasAt, type PanelResult } from "./panel.js";
+import { EVENT_SIGNALS, residualMomentum, type EventSignalKey } from "./events.js";
 import type { Candle } from "./indicators.js";
 import { mean, stddev } from "./linalg.js";
 
@@ -49,6 +50,17 @@ export interface Observation {
   p95: number;
   confidence: number;
   realizedPct: number;
+  /** signaux événementiels connus à la date (engine/events.ts), pour leur mesure séparée */
+  signals?: Partial<Record<EventSignalKey, number>>;
+}
+
+export interface SignalEvaluation {
+  key: EventSignalKey;
+  label: string;
+  /** corrélation de rang entre le signal et le rendement réalisé, par date puis moyennée */
+  ic: { mean: number | null; std: number | null; tStat: number | null; positiveShare: number | null; dates: number };
+  /** part des observations où le signal est non nul (un signal rare est mesuré sur peu de dates) */
+  activeShare: number;
 }
 
 export interface ReliabilityBin { from: number; to: number; n: number; predicted: number | null; observed: number | null }
@@ -80,6 +92,8 @@ export interface HorizonEvaluation {
   baselineBrier: number;
   reliability: ReliabilityBin[];
   strategy: { topK: StrategyStats; index: StrategyStats | null; equalWeight: StrategyStats; costsPct: number };
+  /** mesure séparée de chaque famille de signal événementiel (absente des rapports antérieurs) */
+  signals?: SignalEvaluation[];
 }
 
 export interface EvaluationReport {
@@ -188,6 +202,23 @@ export function evaluateObservations(obs: Observation[], indexReturns: Map<strin
     }
     const icMean = ics.length ? mean(ics) : null;
     const icStd = ics.length > 1 ? stddev(ics) : null;
+    // familles de signaux : corrélation de rang signal / réalisé par date, sur les dates où le signal varie
+    const signals: SignalEvaluation[] = EVENT_SIGNALS.map((sig) => {
+      const vals: number[] = [];
+      let active = 0;
+      for (const d of dates) {
+        const rows = byDate.get(d)!.filter((x) => x.signals?.[sig.key] != null);
+        if (rows.length < 5) continue;
+        const xs = rows.map((x) => x.signals![sig.key]!);
+        active += xs.filter((v) => v !== 0).length;
+        if (xs.filter((v) => v !== 0).length < 3) continue;
+        const ic = spearman(xs, rows.map((x) => x.realizedPct));
+        if (ic != null) vals.push(ic);
+      }
+      const m = vals.length ? mean(vals) : null;
+      const sd = vals.length > 1 ? stddev(vals) : null;
+      return { key: sig.key, label: sig.label, ic: { mean: m != null ? r2(m, 1000) : null, std: sd != null ? r2(sd, 1000) : null, tStat: m != null && sd != null && sd > 0 ? r2((m / sd) * Math.sqrt(vals.length)) : null, positiveShare: vals.length ? r2(vals.filter((v) => v > 0).length / vals.length) : null, dates: vals.length }, activeShare: r2(active / o.length) };
+    });
     // stratégie : dates espacées d'au moins h séances (périodes non chevauchantes)
     const every = Math.max(1, Math.ceil(h / config.step));
     const rebalance = dates.filter((_, i) => i % every === 0);
@@ -232,6 +263,7 @@ export function evaluateObservations(obs: Observation[], indexReturns: Map<strin
       baselineBrier: r2(mean(o.map((x) => (upShare - (x.realizedPct > 0 ? 1 : 0)) ** 2)), 1000),
       reliability: reliability(o),
       strategy: { topK: strategyStats(top, sessionsPerPeriod), index: idx.length === top.length && idx.length ? strategyStats(idx, sessionsPerPeriod) : null, equalWeight: strategyStats(eq, sessionsPerPeriod), costsPct: r2(costs, 10) },
+      signals,
     });
   }
   return out;
@@ -263,20 +295,24 @@ export function evaluationDates(candlesBySymbol: Map<string, Candle[]>, config: 
 }
 
 /** Observations prévu / réalisé d'une valeur à une date (aucune donnée postérieure à la date n'est lue). */
-export function observeAt(symbol: string, candles: Candle[], indexByTs: Map<number, number>, ts: number, config: EvaluationConfig, panel: PanelResult | null = null): Observation[] {
+export function observeAt(symbol: string, candles: Candle[], indexByTs: Map<number, number>, ts: number, config: EvaluationConfig, panel: PanelResult | null = null, extrasAt?: ExtrasAt): Observation[] {
   let cut = candles.length - 1;
   while (cut >= 0 && candles[cut].ts > ts) cut--;
   if (cut + 1 < config.minHistory) return [];
   const past = candles.slice(0, cut + 1);
   const idx = past.map((c) => indexByTs.get(c.ts) ?? NaN);
   const f = forecast({ symbol, candles: past, indexCloses: idx.every(Number.isFinite) ? idx : null, seed: config.seed, panel: panelInputFor(panel, symbol) });
+  // signaux événementiels connus à la date, mesurés séparément (momentum résiduel contre l'indice composite)
+  const price = past[past.length - 1].close;
+  const ex = extrasAt?.(symbol, ts, price);
+  const signals: Observation["signals"] = { pubDrift: ex?.pubDrift ?? 0, divWindow: ex?.divWindow ?? 0, book5: ex?.book5 ?? 0, resMom: residualMomentum(past.map((c) => c.close), idx.every(Number.isFinite) ? idx : null, past.length - 1) };
   const out: Observation[] = [];
   for (const h of f.horizons) {
     if (!config.horizons.includes(h.horizon)) continue;
     const target = candles[cut + h.horizonDays];
     if (!target) continue;
-    const realizedPct = (target.close / past[past.length - 1].close - 1) * 100;
-    out.push({ ts, symbol, horizon: h.horizon, expectedPct: h.expectedReturnPct, probUp: h.probUp, p5: h.quantiles.p5, p95: h.quantiles.p95, confidence: h.confidence, realizedPct });
+    const realizedPct = (target.close / price - 1) * 100;
+    out.push({ ts, symbol, horizon: h.horizon, expectedPct: h.expectedReturnPct, probUp: h.probUp, p5: h.quantiles.p5, p95: h.quantiles.p95, confidence: h.confidence, realizedPct, signals });
   }
   return out;
 }
@@ -328,6 +364,8 @@ export function buildVerdict(horizons: HorizonEvaluation[]): string[] {
     parts.push(`intervalle 90 % tenu ${Math.round(h.coverage90 * 100)} % du temps`);
     const s = h.strategy;
     parts.push(`stratégie ${s.topK.periods} périodes : ${s.topK.totalReturnPct > 0 ? "+" : ""}${s.topK.totalReturnPct.toFixed(1)} % net de frais contre ${s.equalWeight.totalReturnPct > 0 ? "+" : ""}${s.equalWeight.totalReturnPct.toFixed(1)} % équipondéré${s.index ? ` et ${s.index.totalReturnPct > 0 ? "+" : ""}${s.index.totalReturnPct.toFixed(1)} % indice` : ""}`);
+    const measured = (h.signals ?? []).filter((x) => x.ic.mean != null && x.ic.dates >= 5);
+    if (measured.length) parts.push(`signaux : ${measured.map((x) => `${x.label.toLowerCase()} ${x.ic.mean! > 0 ? "+" : ""}${x.ic.mean!.toFixed(3)}${x.ic.tStat != null && Math.abs(x.ic.tStat) >= 2 ? " (significatif)" : ""}`).join(", ")}`);
     v.push(parts.join(" · "));
   }
   return v;
@@ -341,7 +379,7 @@ export function walkForwardEvaluation(input: EvaluationInput): EvaluationReport 
   let done = 0;
   for (const ts of dates) {
     const panel = panelAt(input.candlesBySymbol, ts, config, input.extrasAt);
-    for (const [symbol, candles] of input.candlesBySymbol) obs.push(...observeAt(symbol, candles, input.indexByTs, ts, config, panel));
+    for (const [symbol, candles] of input.candlesBySymbol) obs.push(...observeAt(symbol, candles, input.indexByTs, ts, config, panel, input.extrasAt));
     input.onProgress?.(++done, dates.length);
   }
   return finalizeReport(obs, input.indexByTs, config, input.candlesBySymbol.size);
