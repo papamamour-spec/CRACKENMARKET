@@ -545,6 +545,12 @@ function migrate(d: DB): void {
       exit_cost REAL
     );
     CREATE INDEX IF NOT EXISTS idx_st_positions_portfolio ON st_positions(portfolio_id);
+    CREATE TABLE IF NOT EXISTS st_backtests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at INTEGER NOT NULL,
+      config TEXT NOT NULL,
+      report TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS evaluation_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at INTEGER NOT NULL,
@@ -615,6 +621,8 @@ function migrate(d: DB): void {
   addColumn(d, "bonds", "dates_estimated", "INTEGER NOT NULL DEFAULT 0");
   addColumn(d, "bonds", "quoted_pct", "REAL");
   addColumn(d, "bonds", "prev_pct", "REAL");
+  addColumn(d, "st_portfolios", "peak", "REAL"); // plus haut atteint (plancher cliquet CPPI)
+  addColumn(d, "st_portfolios", "protection", "INTEGER NOT NULL DEFAULT 1");
   addColumn(d, "bonds", "quoted_at", "INTEGER");
   addColumn(d, "bonds", "quote_source", "TEXT");
   addColumn(d, "bonds", "volume", "INTEGER NOT NULL DEFAULT 0");

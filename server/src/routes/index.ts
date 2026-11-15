@@ -905,6 +905,16 @@ export function buildRouter(s: Services): Router {
     const capital = Number(req.query.capital ?? 10_000_000);
     res.json({ status: s.shortTerm.status(), candidates: s.shortTerm.candidates(capital > 0 ? capital : 10_000_000), portfolios: s.shortTerm.list(req.auth!.sub) });
   });
+  r.get("/shortterm/backtest", guard, (_req, res) => {
+    const bt = s.shortTerm.latestBacktest();
+    if (!bt) return res.status(404).json({ error: "Aucune mesure encore calculée" });
+    res.json(bt);
+  });
+  r.post("/shortterm/backtest", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    const body = z.object({ sessions: z.number().int().min(150).max(1500).optional(), step: z.number().int().min(2).max(40).optional(), rotation: z.number().int().min(1).max(21).optional(), panel: z.boolean().optional() }).parse(req.body ?? {});
+    res.json({ started: s.shortTerm.backtest(body), status: s.shortTerm.status() });
+  });
   r.get("/shortterm/:id", guard, (req, res) => {
     const v = s.shortTerm.view(req.auth!.sub, Number(req.params.id));
     if (!v) return res.status(404).json({ error: "Portefeuille introuvable" });
