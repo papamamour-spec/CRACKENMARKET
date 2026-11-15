@@ -27,6 +27,7 @@ import type { BocService } from "../services/boc.js";
 import type { EvaluationService } from "../services/evaluation.js";
 import type { FundamentalsService } from "../services/fundamentals.js";
 import type { LlmExtractService } from "../services/llmextract.js";
+import type { ShortTermService } from "../services/shortterm.js";
 import type { PanelService } from "../services/panel.js";
 import type { HistoryService } from "../services/history.js";
 import type { AdvisorService } from "../services/advisor.js";
@@ -66,6 +67,7 @@ export interface Services {
   dataQuality: DataQualityService;
   attribution: AttributionService;
   llm: LlmExtractService;
+  shortTerm: ShortTermService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -898,6 +900,37 @@ export function buildRouter(s: Services): Router {
   );
 
   // ---- Portefeuilles modèles par profil ----
+  // moteur court terme : méta-étiquetage, Kelly fractionnaire, triple barrière
+  r.get("/shortterm", guard, (req, res) => {
+    const capital = Number(req.query.capital ?? 10_000_000);
+    res.json({ status: s.shortTerm.status(), candidates: s.shortTerm.candidates(capital > 0 ? capital : 10_000_000), portfolios: s.shortTerm.list(req.auth!.sub) });
+  });
+  r.get("/shortterm/:id", guard, (req, res) => {
+    const v = s.shortTerm.view(req.auth!.sub, Number(req.params.id));
+    if (!v) return res.status(404).json({ error: "Portefeuille introuvable" });
+    res.json(v);
+  });
+  r.post("/shortterm/train", guard, (req, res) => {
+    if (!isAnalyst(req)) return res.status(403).json({ error: "Réservé aux analystes" });
+    const body = z.object({ sessions: z.number().int().min(100).max(1500).optional(), step: z.number().int().min(2).max(40).optional(), panel: z.boolean().optional() }).parse(req.body ?? {});
+    const started = s.shortTerm.train(body);
+    res.json({ started, status: s.shortTerm.status() });
+  });
+  r.post("/shortterm/review", guard, (_req, res) => res.json({ ...s.shortTerm.review(), status: s.shortTerm.status() }));
+  r.post(
+    "/shortterm/publish",
+    guard,
+    asyncHandler((req, res) => {
+      const body = z.object({ capital: z.number().positive().max(1e12), note: z.string().max(300).nullable().optional() }).parse(req.body);
+      res.status(201).json(s.shortTerm.publish(req.auth!.sub, body.capital, body.note ?? null));
+    }),
+  );
+  r.post("/shortterm/:id/close", guard, (req, res) => {
+    const body = z.object({ positionId: z.number().int().optional().nullable() }).parse(req.body ?? {});
+    const v = s.shortTerm.close(req.auth!.sub, Number(req.params.id), body.positionId ?? null);
+    if (!v) return res.status(404).json({ error: "Portefeuille introuvable" });
+    res.json(v);
+  });
   r.get("/models", guard, (_req, res) => res.json({ items: s.models.list(), status: s.models.status() }));
   r.get("/models/:key", guard, (req, res) => {
     const v = s.models.view(req.params.key);

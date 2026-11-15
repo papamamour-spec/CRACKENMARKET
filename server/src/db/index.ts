@@ -506,6 +506,45 @@ function migrate(d: DB): void {
     );
     CREATE INDEX IF NOT EXISTS idx_llm_extractions_ts ON llm_extractions(ts);
     CREATE INDEX IF NOT EXISTS idx_llm_extractions_url ON llm_extractions(url);
+    CREATE TABLE IF NOT EXISTS meta_models (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at INTEGER NOT NULL,
+      config TEXT NOT NULL,            -- JSON (sessions, step, horizon, barrières)
+      model TEXT NOT NULL,             -- JSON LogisticModel
+      stats TEXT NOT NULL              -- JSON MetaStats
+    );
+    CREATE TABLE IF NOT EXISTS st_portfolios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      start_ts INTEGER NOT NULL,
+      capital REAL NOT NULL,
+      cash REAL NOT NULL,
+      entry_cost REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'actif', -- actif | clos
+      closed_at INTEGER,
+      note TEXT,
+      model_id INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS st_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      portfolio_id INTEGER NOT NULL REFERENCES st_portfolios(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      entry_ts INTEGER NOT NULL,
+      entry_price REAL NOT NULL,
+      quantity INTEGER NOT NULL,
+      weight_pct REAL NOT NULL,
+      prob REAL NOT NULL,
+      kelly REAL NOT NULL,
+      target_price REAL NOT NULL,
+      stop_price REAL NOT NULL,
+      deadline_ts INTEGER NOT NULL,
+      exit_ts INTEGER,
+      exit_price REAL,
+      exit_reason TEXT,                -- objectif | seuil | échéance | manuel
+      exit_cost REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_st_positions_portfolio ON st_positions(portfolio_id);
     CREATE TABLE IF NOT EXISTS evaluation_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at INTEGER NOT NULL,

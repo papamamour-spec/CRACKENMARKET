@@ -9,6 +9,7 @@ const PAGES: { label: string; to: string; hint: string }[] = [
   { label: "Analyser mon portefeuille", to: "/mon-portefeuille", hint: "Saisir mes titres et obtenir des recommandations" },
   { label: "Demander un conseil", to: "/conseil", hint: "Nouvelle demande de placement" },
   { label: "Portefeuilles modèles", to: "/modeles", hint: "Prudent, équilibré, dynamique, revenus : références suivies nettes de frais" },
+  { label: "Court terme", to: "/court-terme", hint: "Méta-étiquetage, Kelly fractionnaire, triple barrière : panier concentré avec objectif, seuil et échéance" },
   { label: "Portefeuille", to: "/portefeuille", hint: "Positions et ordres" },
   { label: "Performance", to: "/performance", hint: "Courbe et statistiques" },
   { label: "Radar de la place", to: "/radar", hint: "Introductions, émissions, dividendes, suspensions" },
