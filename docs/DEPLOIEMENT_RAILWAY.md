@@ -48,6 +48,7 @@ le serveur et l'interface, puis sert le tout sur un seul port (API, WebSocket et
    | `ANTHROPIC_API_KEY` | (facultatif) | clé de l'API Claude : active la lecture des publications par modèle de langage (fondamentaux et événements extraits du texte complet des documents) ; sans clé, seul le lecteur à règles fonctionne |
    | `LLM_MODEL` | `claude-opus-5-5` | modèle utilisé pour la lecture des publications |
    | `LLM_EXTRACT_DAILY_MAX` | `25` | nombre maximal de publications soumises au modèle par jour (`0` : sans limite) |
+   | `SHORTTERM_AUTO` | `1` | moteur court terme : revue des barrières après chaque clôture et réentraînement hebdomadaire du modèle secondaire ; `0` : à la demande seulement |
    | `LLM_AUTO` | `1` | passages automatiques (démarrage, après chaque téléchargement de publications, toutes les six heures) ; `0` : à la demande seulement |
    | `FUNDAMENTALS_FETCH` | `1` | téléchargement automatique du corps des publications pour en extraire les fondamentaux (`0` : titres seuls) |
    | `DOC_COLLECT` | `1` | collecte des rapports, annonces et communiqués des sociétés (`0` pour désactiver) |

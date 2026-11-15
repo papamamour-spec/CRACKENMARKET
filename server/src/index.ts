@@ -33,6 +33,7 @@ import { BocService } from "./services/boc.js";
 import { EvaluationService } from "./services/evaluation.js";
 import { FundamentalsService } from "./services/fundamentals.js";
 import { LlmExtractService } from "./services/llmextract.js";
+import { ShortTermService } from "./services/shortterm.js";
 import { PanelService } from "./services/panel.js";
 import { HistoryService } from "./services/history.js";
 import { attachWebSocket } from "./ws.js";
@@ -112,7 +113,10 @@ async function main(): Promise<void> {
   const attribution = new AttributionService(market, tracking, holdings);
   llm.attach(radar);
   llm.start();
-  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking, models, dataQuality, attribution, llm };
+  const shortTerm = new ShortTermService(db, market, forecasts);
+  shortTerm.attach(panel.extrasAt);
+  shortTerm.start();
+  const services = { db, auth, market, portfolios, advisor, alerts, social, signals, sgi, advisory, news, forecasts, learning, holdings, bonds, documents, quality, radar, corporate, boc, evaluation, fundamentals, panel, history, tracking, models, dataQuality, attribution, llm, shortTerm };
   signals.start();
   // Instantanés de valorisation : au démarrage puis toutes les 15 minutes (idempotent par jour)
   portfolios.snapshotAll();

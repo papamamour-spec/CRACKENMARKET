@@ -751,3 +751,16 @@ export interface AttributionReport {
   factors: { beta: number | null; marketContributionPct: number | null; specificPct: number | null };
   notes: string[];
 }
+
+// ---- Moteur court terme (méta-étiquetage, Kelly, triple barrière) ----
+export interface BarrierSpec { profit: number; stop: number; maxSessions: number }
+export interface MetaStats { n: number; baseRate: number; testN: number; accuracy: number | null; baselineAccuracy: number | null; auc: number | null; brier: number | null; baselineBrier: number | null; calibration: { from: number; to: number; n: number; predicted: number | null; observed: number | null }[]; selectedReturnPct: number | null; allReturnPct: number | null; selectedShare: number | null; coefficients: { key: string; label: string; beta: number }[] }
+export interface ShortTermConfig { sessions: number; step: number; minHistory: number; horizon: number; kProfit: number; kStop: number; panel: boolean; seed: number; lambda: number; minProb: number; maxLines: number; maxWeightPct: number; fraction: number }
+export interface ShortTermStatus { model: { id: number; createdAt: number; stats: MetaStats; config: ShortTermConfig } | null; training: { startedAt: number; done: number; total: number } | null; lastReview: number | null; active: number }
+export interface ShortTermCandidate { symbol: string; name: string; sector: string; price: number; expectedPct: number; probUp: number; prob: number; barriers: BarrierSpec; targetPrice: number; stopPrice: number; deadlineTs: number; liquidityCapPct: number; kelly: number; weightPct: number; selected: boolean }
+export interface ShortTermPosition { id: number; symbol: string; name: string; entryTs: number; entryPrice: number; quantity: number; weightPct: number; prob: number; kelly: number; targetPrice: number; stopPrice: number; deadlineTs: number; exitTs: number | null; exitPrice: number | null; exitReason: "objectif" | "seuil" | "échéance" | "manuel" | null; price: number; returnPct: number; toTargetPct: number; toStopPct: number; daysLeft: number }
+export interface ShortTermStats { value: number; valueNet: number; returnPct: number; returnNetPct: number; compositePct: number; alphaPct: number; open: number; closed: number; wins: number; losses: number; days: number; sessions: number; maxDrawdownPct: number }
+export interface ShortTermPortfolioSummary { id: number; createdAt: number; startTs: number; capital: number; cash: number; entryCost: number; status: "actif" | "clos"; closedAt: number | null; note: string | null; modelId: number | null; stats: ShortTermStats }
+export interface ShortTermPortfolio extends ShortTermPortfolioSummary { positions: ShortTermPosition[]; series: { time: number; value: number; portfolioPct: number; benchmarkPct: number }[] }
+export interface ShortTermResponse { status: ShortTermStatus; candidates: { items: ShortTermCandidate[]; cashPct: number; modelId: number | null; at: number }; portfolios: ShortTermPortfolioSummary[] }
+
