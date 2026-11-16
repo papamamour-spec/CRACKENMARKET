@@ -382,3 +382,35 @@ ol.actions .badge { margin-right: 4px; vertical-align: middle; }
 .attr-fill { height: 100%; border-radius: 5px; }
 .attr-fill.pos { background: var(--up); }
 .attr-fill.neg { background: var(--down); }
+
+/* mode simple / expert */
+.expert-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-top: auto; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; border-top: 1px solid var(--border); }
+.expert-toggle .switch { width: 30px; height: 16px; border-radius: 8px; background: var(--bg-3); position: relative; flex-shrink: 0; transition: background .15s; }
+.expert-toggle .switch span { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: left .15s, background .15s; }
+.expert-toggle.on .switch { background: var(--accent); }
+.expert-toggle.on .switch span { left: 16px; background: #fff; }
+.sidebar-foot { margin-top: 0; }
+
+/* Aujourd'hui */
+.today-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.today-head h1 { margin: 0; font-size: 24px; }
+.todo { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.todo li { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); }
+.todo li.done { opacity: .55; }
+.todo li.urgent { border-color: var(--warn); }
+.todo .check { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
+.todo .text { font-size: 15px; font-weight: 600; }
+.todo .why { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.todo details { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.todo summary { cursor: pointer; }
+.todo-empty { padding: 18px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; font-size: 15px; }
+.health { display: flex; gap: 14px; align-items: flex-start; }
+.health-dot { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; box-shadow: 0 0 10px currentColor; }
+.health-dot.vert { background: var(--up); color: var(--up); }
+.health-dot.orange { background: var(--warn); color: var(--warn); }
+.health-dot.rouge { background: var(--down); color: var(--down); }
+.health h3 { margin: 0 0 4px; }
+.gauge { height: 8px; border-radius: 4px; background: var(--bg-3); overflow: hidden; margin-top: 6px; }
+.gauge span { display: block; height: 100%; background: var(--accent); }
+.big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+

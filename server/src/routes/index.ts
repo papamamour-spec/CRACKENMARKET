@@ -28,6 +28,7 @@ import type { EvaluationService } from "../services/evaluation.js";
 import type { FundamentalsService } from "../services/fundamentals.js";
 import type { LlmExtractService } from "../services/llmextract.js";
 import type { ShortTermService } from "../services/shortterm.js";
+import type { TodayService } from "../services/today.js";
 import type { PanelService } from "../services/panel.js";
 import type { HistoryService } from "../services/history.js";
 import type { AdvisorService } from "../services/advisor.js";
@@ -68,6 +69,7 @@ export interface Services {
   attribution: AttributionService;
   llm: LlmExtractService;
   shortTerm: ShortTermService;
+  today: TodayService;
 }
 
 export function buildRouter(s: Services): Router {
@@ -900,6 +902,13 @@ export function buildRouter(s: Services): Router {
   );
 
   // ---- Portefeuilles modèles par profil ----
+  // « Aujourd'hui » : ordres à passer, capital, santé du moteur
+  r.get("/today", guard, (req, res) => res.json(s.today.view(req.auth!.sub)));
+  r.post("/today/confirm", guard, (req, res) => {
+    const body = z.object({ positionId: z.number().int(), kind: z.enum(["achat", "vente"]), done: z.boolean().optional() }).parse(req.body);
+    if (!s.today.confirm(req.auth!.sub, body.positionId, body.kind, body.done ?? true)) return res.status(404).json({ error: "Position introuvable" });
+    res.json(s.today.view(req.auth!.sub));
+  });
   // moteur court terme : méta-étiquetage, Kelly fractionnaire, triple barrière
   r.get("/shortterm", guard, (req, res) => {
     const capital = Number(req.query.capital ?? 10_000_000);

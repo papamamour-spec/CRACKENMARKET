@@ -772,3 +772,9 @@ export interface ShortTermPortfolioSummary { id: number; createdAt: number; star
 export interface ShortTermPortfolio extends ShortTermPortfolioSummary { positions: ShortTermPosition[]; series: { time: number; value: number; portfolioPct: number; benchmarkPct: number }[] }
 export interface ShortTermResponse { status: ShortTermStatus; candidates: { items: ShortTermCandidate[]; cashPct: number; modelId: number | null; at: number; protection: ProtectionView }; portfolios: ShortTermPortfolioSummary[] }
 
+// ---- Aujourd'hui ----
+export interface TodayAction { id: string; kind: "acheter" | "vendre" | "échéance" | "info"; portfolioId: number | null; positionId: number | null; symbol: string | null; name: string | null; quantity: number | null; price: number | null; text: string; why: string; details: string[]; done: boolean; since: number; urgent: boolean; link: string | null }
+export interface TodayCapital { shortTerm: { portfolioId: number; capital: number; value: number; monthPct: number | null; monthFcfa: number | null; sincePct: number; alphaPct: number; exposurePct: number; exposureCapPct: number; floorDistancePct: number; open: number; status: "actif" | "clos" } | null; longTerm: { total: number; invested: number; cash: number; pnlPct: number | null; dividendYieldPct: number; lines: number } | null; total: number }
+export interface TodayHealth { light: "vert" | "orange" | "rouge"; title: string; reasons: string[]; regime: { label: string; multiplier: number } | null; measuredAt: number | null; modelAt: number | null; dataQualityScore: number | null; lastSession: number | null }
+export interface TodayView { date: number; actions: TodayAction[]; capital: TodayCapital; health: TodayHealth; nextReview: string }
+

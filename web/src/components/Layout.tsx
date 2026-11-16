@@ -24,6 +24,8 @@ export function Layout() {
   const { indices, status, connected, quotes, notifications, dismiss } = useMarket();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [expert, setExpert] = useState<boolean>(() => { try { return localStorage.getItem("cm_expert") === "1"; } catch { return false; } });
+  const toggleExpert = () => { const v = !expert; setExpert(v); try { localStorage.setItem("cm_expert", v ? "1" : "0"); } catch { /* stockage indisponible */ } };
   const location = useLocation();
   const tape = Array.from(quotes.values()).sort((a, b) => b.value - a.value);
   const role = user?.role ?? "investor";
@@ -41,11 +43,24 @@ export function Layout() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const groups: NavGroup[] = [
+  // mode simple : cinq entrées ; mode expert : toutes les pages, rangées par domaine
+  const simple: NavGroup[] = [
+    {
+      title: "L'essentiel",
+      items: [
+        { to: "/", label: "Aujourd'hui", icon: "☀" },
+        { to: "/mon-portefeuille", label: "Mon capital", icon: "◈" },
+        { to: "/marche", label: "Le marché", icon: "≣" },
+        { to: "/profil", label: "Réglages", icon: "⚙" },
+      ],
+    },
+  ];
+  const full: NavGroup[] = [
     {
       title: "Conseil",
       items: [
-        { to: "/", label: "Accueil", icon: "⌂" },
+        { to: "/", label: "Aujourd'hui", icon: "☀" },
+        { to: "/tableau-de-bord", label: "Tableau de bord", icon: "⌂" },
         { to: "/conseiller", label: "Mes conseils", icon: "✦" },
         { to: "/modeles", label: "Portefeuilles modèles", icon: "▥" },
         { to: "/court-terme", label: "Court terme", icon: "⚡" },
@@ -86,6 +101,7 @@ export function Layout() {
       ],
     },
   ];
+  const groups = expert ? full : simple;
 
   return (
     <div className={`shell ${drawer ? "drawer-open" : ""}`}>
@@ -106,6 +122,11 @@ export function Layout() {
             </div>
           );
         })}
+        <button className={`expert-toggle ${expert ? "on" : ""}`} onClick={toggleExpert} title={expert ? "Revenir aux cinq entrées essentielles" : "Afficher toutes les pages : prévisions, mesures, données, modèles"}>
+          <span className="switch" aria-hidden><span /></span>
+          <span>{expert ? "Mode expert" : "Mode simple"}</span>
+          <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{expert ? "tout voir" : "5 entrées"}</span>
+        </button>
         <div className="sidebar-foot">
           <span className={`dot ${connected ? (status?.provider === "live" ? "on" : "sim") : ""}`} />
           <span className="muted" style={{ fontSize: 12 }}>{connected ? (status?.provider === "live" ? "Temps réel BRVM" : "Simulation temps réel") : "Reconnexion…"}{status && ` · ${status.open ? "séance ouverte" : "hors séance"}`}</span>

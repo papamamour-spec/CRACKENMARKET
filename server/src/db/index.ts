@@ -623,6 +623,8 @@ function migrate(d: DB): void {
   addColumn(d, "bonds", "prev_pct", "REAL");
   addColumn(d, "st_portfolios", "peak", "REAL"); // plus haut atteint (plancher cliquet CPPI)
   addColumn(d, "st_portfolios", "protection", "INTEGER NOT NULL DEFAULT 1");
+  addColumn(d, "st_positions", "entry_confirmed_at", "INTEGER"); // rapprochement : ordre d'achat passé chez la SGI
+  addColumn(d, "st_positions", "exit_confirmed_at", "INTEGER"); // rapprochement : ordre de vente passé
   addColumn(d, "bonds", "quoted_at", "INTEGER");
   addColumn(d, "bonds", "quote_source", "TEXT");
   addColumn(d, "bonds", "volume", "INTEGER NOT NULL DEFAULT 0");

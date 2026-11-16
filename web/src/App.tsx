@@ -7,6 +7,7 @@ import { AdvisorPage } from "./pages/AdvisorPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { BacktestPage } from "./pages/BacktestPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { TodayPage } from "./pages/TodayPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MarketPage } from "./pages/MarketPage";
@@ -70,7 +71,8 @@ export function App() {
           <Route path="/connexion" element={<LoginPage />} />
           <Route path="/bienvenue" element={<Public />} />
           <Route element={<Protected />}>
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<TodayPage />} />
+            <Route path="/tableau-de-bord" element={<DashboardPage />} />
             <Route path="/marche" element={<MarketPage />} />
             <Route path="/valeur/:symbol" element={<InstrumentPage />} />
             <Route path="/conseiller" element={<AdvisorPage />} />
