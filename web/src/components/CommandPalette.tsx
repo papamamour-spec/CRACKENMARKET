@@ -4,7 +4,8 @@ import { useMarket } from "../hooks/useMarket";
 import { fmtNum, fmtPct, signClass } from "../lib/format";
 
 const PAGES: { label: string; to: string; hint: string }[] = [
-  { label: "Accueil", to: "/", hint: "Vos conseils du jour" },
+  { label: "Aujourd'hui", to: "/", hint: "Ordres à passer, capital, santé du moteur" },
+  { label: "Tableau de bord", to: "/tableau-de-bord", hint: "Vue d'ensemble détaillée : marché, conseils, portefeuille" },
   { label: "Mes conseils", to: "/conseiller", hint: "Recommandations et diagnostic" },
   { label: "Analyser mon portefeuille", to: "/mon-portefeuille", hint: "Saisir mes titres et obtenir des recommandations" },
   { label: "Demander un conseil", to: "/conseil", hint: "Nouvelle demande de placement" },
